@@ -1,0 +1,30 @@
+{"id":"ta001_q1","company_name":"Samsung Electronics","question_id":1,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/yahoo_","data/raw/dart_"]}
+{"id":"ta001_q2","company_name":"Samsung Electronics","question_id":2,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/dart_notes_","data/raw/customer_dependency_"]}
+{"id":"ta001_q3","company_name":"Samsung Electronics","question_id":3,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"ta001_q4","company_name":"Samsung Electronics","question_id":4,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"ta001_q5","company_name":"Samsung Electronics","question_id":5,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/yahoo_","data/raw/dart_"]}
+{"id":"ta001_q6","company_name":"Samsung Electronics","question_id":6,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"ta001_q7","company_name":"Samsung Electronics","question_id":7,"min_readiness":"불가","top_k_per_question":6,"expected_source_prefixes":[]}
+{"id":"ta001_q8","company_name":"Samsung Electronics","question_id":8,"min_readiness":"불가","top_k_per_question":6,"expected_source_prefixes":[]}
+{"id":"ta001_q9","company_name":"Samsung Electronics","question_id":9,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/news_"]}
+{"id":"ta001_q10","company_name":"Samsung Electronics","question_id":10,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/news_"]}
+{"id":"ta002_q1","company_name":"SK hynix","question_id":1,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/yahoo_","data/raw/dart_"]}
+{"id":"ta002_q2","company_name":"SK hynix","question_id":2,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/dart_notes_","data/raw/customer_dependency_"]}
+{"id":"ta002_q3","company_name":"SK hynix","question_id":3,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"ta002_q4","company_name":"SK hynix","question_id":4,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"ta002_q5","company_name":"SK hynix","question_id":5,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/yahoo_","data/raw/dart_"]}
+{"id":"ta002_q6","company_name":"SK hynix","question_id":6,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"ta002_q7","company_name":"SK hynix","question_id":7,"min_readiness":"불가","top_k_per_question":6,"expected_source_prefixes":[]}
+{"id":"ta002_q8","company_name":"SK hynix","question_id":8,"min_readiness":"불가","top_k_per_question":6,"expected_source_prefixes":[]}
+{"id":"ta002_q9","company_name":"SK hynix","question_id":9,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/news_"]}
+{"id":"ta002_q10","company_name":"SK hynix","question_id":10,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/news_"]}
+{"id":"ta003_q1","company_name":"NAVER","question_id":1,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/yahoo_","data/raw/dart_"]}
+{"id":"ta003_q2","company_name":"NAVER","question_id":2,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/dart_notes_","data/raw/customer_dependency_"]}
+{"id":"ta003_q3","company_name":"NAVER","question_id":3,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"ta003_q4","company_name":"NAVER","question_id":4,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"ta003_q5","company_name":"NAVER","question_id":5,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/yahoo_","data/raw/dart_"]}
+{"id":"ta003_q6","company_name":"NAVER","question_id":6,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"ta003_q7","company_name":"NAVER","question_id":7,"min_readiness":"불가","top_k_per_question":6,"expected_source_prefixes":[]}
+{"id":"ta003_q8","company_name":"NAVER","question_id":8,"min_readiness":"불가","top_k_per_question":6,"expected_source_prefixes":[]}
+{"id":"ta003_q9","company_name":"NAVER","question_id":9,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/news_"]}
+{"id":"ta003_q10","company_name":"NAVER","question_id":10,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/dart_","data/raw/news_"]}

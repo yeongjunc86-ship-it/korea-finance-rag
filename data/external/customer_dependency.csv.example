@@ -1,0 +1,4 @@
+company,ticker,market,customer_name,revenue_share_pct,fiscal_year,source_type,source_url,confidence,note
+Samsung Electronics,005930.KS,KOSPI,Apple,21.5,2024,IR,https://example.com/ir,0.9,사업보고서/IR 기준 추정
+Samsung Electronics,005930.KS,KOSPI,익명고객A,14.2,2024,annual_report,https://example.com/report,0.7,공시 익명표기
+SK hynix,000660.KS,KOSPI,NVIDIA,27.0,2024,earnings_call,https://example.com/call,0.85,콜 스크립트 기반

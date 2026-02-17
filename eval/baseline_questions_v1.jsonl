@@ -1,0 +1,30 @@
+{"id":"q001","task":"query","question":"005930.KS 기업 핵심 요약","expected_tickers":["005930.KS"],"top_k":5,"freshness_days":60}
+{"id":"q002","task":"query","question":"000660.KS 기업 요약과 리스크","expected_tickers":["000660.KS"],"top_k":5,"freshness_days":60}
+{"id":"q003","task":"query","question":"035420.KS 회사 개요","expected_tickers":["035420.KS"],"top_k":5,"freshness_days":60}
+{"id":"q004","task":"query","question":"051910.KS 사업 구조 요약","expected_tickers":["051910.KS"],"top_k":5,"freshness_days":60}
+{"id":"q005","task":"query","question":"005380.KS 기업 데이터 정리","expected_tickers":["005380.KS"],"top_k":5,"freshness_days":60}
+{"id":"q006","task":"query","question":"035720.KS 시장과 산업 요약","expected_tickers":["035720.KS"],"top_k":5,"freshness_days":60}
+{"id":"q007","task":"query","question":"068270.KS 최근 정보 정리","expected_tickers":["068270.KS"],"top_k":5,"freshness_days":60}
+{"id":"q008","task":"query","question":"105560.KS 금융 스냅샷","expected_tickers":["105560.KS"],"top_k":5,"freshness_days":60}
+{"id":"q009","task":"query","question":"207940.KS 회사 분석","expected_tickers":["207940.KS"],"top_k":5,"freshness_days":60}
+{"id":"q010","task":"query","question":"055550.KS 사업과 리스크","expected_tickers":["055550.KS"],"top_k":5,"freshness_days":60}
+{"id":"q011","task":"query","question":"323410.KS 요약","expected_tickers":["323410.KS"],"top_k":5,"freshness_days":60}
+{"id":"q012","task":"query","question":"034020.KS 기업 개요","expected_tickers":["034020.KS"],"top_k":5,"freshness_days":60}
+{"id":"q013","task":"query","question":"096770.KS 기업 요약","expected_tickers":["096770.KS"],"top_k":5,"freshness_days":60}
+{"id":"q014","task":"query","question":"086790.KS 분석","expected_tickers":["086790.KS"],"top_k":5,"freshness_days":60}
+{"id":"q015","task":"query","question":"066570.KS 투자 포인트","expected_tickers":["066570.KS"],"top_k":5,"freshness_days":60}
+{"id":"q016","task":"query","question":"034730.KS 관련 정보","expected_tickers":["034730.KS"],"top_k":5,"freshness_days":60}
+{"id":"q017","task":"query","question":"003550.KS 회사 핵심","expected_tickers":["003550.KS"],"top_k":5,"freshness_days":60}
+{"id":"q018","task":"query","question":"036570.KS 사업 현황","expected_tickers":["036570.KS"],"top_k":5,"freshness_days":60}
+{"id":"q019","task":"query","question":"018260.KS 기업 리스크","expected_tickers":["018260.KS"],"top_k":5,"freshness_days":60}
+{"id":"q020","task":"query","question":"017670.KS 회사 데이터","expected_tickers":["017670.KS"],"top_k":5,"freshness_days":60}
+{"id":"q021","task":"query","question":"090430.KS 기업 보고","expected_tickers":["090430.KS"],"top_k":5,"freshness_days":60}
+{"id":"q022","task":"query","question":"003490.KS 요약","expected_tickers":["003490.KS"],"top_k":5,"freshness_days":60}
+{"id":"q023","task":"query","question":"009150.KS 회사 개요","expected_tickers":["009150.KS"],"top_k":5,"freshness_days":60}
+{"id":"q024","task":"query","question":"316140.KS 핵심 포인트","expected_tickers":["316140.KS"],"top_k":5,"freshness_days":60}
+{"id":"s001","task":"similar","company_or_query":"반도체","top_k":5,"min_results":3}
+{"id":"s002","task":"similar","company_or_query":"바이오","top_k":5,"min_results":3}
+{"id":"s003","task":"similar","company_or_query":"자동차","top_k":5,"min_results":3}
+{"id":"s004","task":"similar","company_or_query":"인터넷 플랫폼","top_k":5,"min_results":3}
+{"id":"s005","task":"similar","company_or_query":"2차전지","top_k":5,"min_results":3}
+{"id":"s006","task":"similar","company_or_query":"게임","top_k":5,"min_results":3}

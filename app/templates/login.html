@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AIDOME 로그인</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="container login-wrap">
+    <section class="card login-card">
+      <h1>관리자 로그인</h1>
+      <p class="muted">데이터 관리 기능은 로그인한 관리자만 사용할 수 있습니다.</p>
+
+      <label for="email">이메일</label>
+      <input id="email" type="email" placeholder="admin@local" />
+
+      <label for="password">비밀번호</label>
+      <input id="password" type="password" placeholder="비밀번호" />
+
+      <div class="row">
+        <button id="loginBtn">로그인</button>
+        <a class="link-btn" href="/">메인으로</a>
+      </div>
+
+      <pre id="loginResult">로그인이 필요합니다.</pre>
+    </section>
+  </main>
+  <script src="/static/login.js"></script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AIDOME M&A 에이전트</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <div class="topbar">
+      <h1>AIDOME M&A 전략 분석</h1>
+      <div class="row">
+        <a class="link-btn" href="/admin">운영 콘솔</a>
+      </div>
+    </div>
+    <p>질문 예시: "신재생 에너지 진출을 위해 시너지가 날 만한 국내 기업 추천해줘"</p>
+
+    <section class="card">
+      <h2>M&A 전략 분석</h2>
+      <label for="question">자연어 질의</label>
+      <textarea id="question" rows="4" placeholder="예: 신재생 에너지 사업 시너지를 위해 인수 검토할 국내 상장사 3곳을 리스크와 함께 요약해줘"></textarea>
+      <div class="row wrap">
+        <button id="runBtn">수행</button>
+        <button id="clearBtn" class="ghost-btn" type="button">화면 초기화</button>
+      </div>
+    </section>
+
+    <div class="split-grid">
+      <section class="card">
+        <h2>전략 분석 보고서</h2>
+        <div class="row">
+          <button id="exportReportTxtBtn" type="button">보고서 TXT</button>
+          <button id="exportReportPdfBtn" type="button">보고서 PDF</button>
+        </div>
+        <pre id="result">아직 요청 없음</pre>
+      </section>
+
+      <section class="card">
+        <h2>근거 출처</h2>
+        <div id="sourcesBox" class="sources-list muted">아직 요청 없음</div>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>유사 업체 탐색기</h2>
+      <div id="peerGrid" class="peer-grid muted">아직 요청 없음</div>
+    </section>
+  </main>
+  <script src="/static/app.js?v=20260216c"></script>
+</body>
+</html>

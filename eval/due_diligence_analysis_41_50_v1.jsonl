@@ -1,0 +1,30 @@
+{"id":"dd001_q41","company_name":"Samsung Electronics","question_id":41,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"dd001_q42","company_name":"Samsung Electronics","question_id":42,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_notes_"]}
+{"id":"dd001_q43","company_name":"Samsung Electronics","question_id":43,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"dd001_q44","company_name":"Samsung Electronics","question_id":44,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_notes_"]}
+{"id":"dd001_q45","company_name":"Samsung Electronics","question_id":45,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/tax_","data/raw/dart_"]}
+{"id":"dd001_q46","company_name":"Samsung Electronics","question_id":46,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_notes_"]}
+{"id":"dd001_q47","company_name":"Samsung Electronics","question_id":47,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_notes_"]}
+{"id":"dd001_q48","company_name":"Samsung Electronics","question_id":48,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/security_","data/raw/privacy_","data/raw/esg_"]}
+{"id":"dd001_q49","company_name":"Samsung Electronics","question_id":49,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/supply_chain_","data/raw/news_"]}
+{"id":"dd001_q50","company_name":"Samsung Electronics","question_id":50,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/pmi_fail_","data/raw/mna_"]}
+{"id":"dd002_q41","company_name":"SK hynix","question_id":41,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"dd002_q42","company_name":"SK hynix","question_id":42,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_notes_"]}
+{"id":"dd002_q43","company_name":"SK hynix","question_id":43,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"dd002_q44","company_name":"SK hynix","question_id":44,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_notes_"]}
+{"id":"dd002_q45","company_name":"SK hynix","question_id":45,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/tax_","data/raw/dart_"]}
+{"id":"dd002_q46","company_name":"SK hynix","question_id":46,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_notes_"]}
+{"id":"dd002_q47","company_name":"SK hynix","question_id":47,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_notes_"]}
+{"id":"dd002_q48","company_name":"SK hynix","question_id":48,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/security_","data/raw/privacy_","data/raw/esg_"]}
+{"id":"dd002_q49","company_name":"SK hynix","question_id":49,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/supply_chain_","data/raw/news_"]}
+{"id":"dd002_q50","company_name":"SK hynix","question_id":50,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/pmi_fail_","data/raw/mna_"]}
+{"id":"dd003_q41","company_name":"NAVER","question_id":41,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"dd003_q42","company_name":"NAVER","question_id":42,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_notes_"]}
+{"id":"dd003_q43","company_name":"NAVER","question_id":43,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_","data/raw/dart_notes_"]}
+{"id":"dd003_q44","company_name":"NAVER","question_id":44,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_notes_"]}
+{"id":"dd003_q45","company_name":"NAVER","question_id":45,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/tax_","data/raw/dart_"]}
+{"id":"dd003_q46","company_name":"NAVER","question_id":46,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_notes_"]}
+{"id":"dd003_q47","company_name":"NAVER","question_id":47,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/dart_notes_"]}
+{"id":"dd003_q48","company_name":"NAVER","question_id":48,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/security_","data/raw/privacy_","data/raw/esg_"]}
+{"id":"dd003_q49","company_name":"NAVER","question_id":49,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/supply_chain_","data/raw/news_"]}
+{"id":"dd003_q50","company_name":"NAVER","question_id":50,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/due_diligence_case_","data/raw/pmi_fail_","data/raw/mna_"]}

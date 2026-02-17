@@ -1,0 +1,49 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Build and tooling
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project runtime artifacts
+logs/
+*.log
+
+# Data artifacts (keep placeholders/docs)
+data/raw/
+data/processed/
+data/index/
+!data/**/README.md
+
+# Model artifacts
+models/
+*.bin
+*.onnx
+*.pt
+*.safetensors

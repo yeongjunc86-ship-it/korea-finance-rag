@@ -1,0 +1,3 @@
+industry,target_company,acquirer,announce_date,deal_value,currency,ev_ebitda,ev_sales,country,source_url
+반도체,Example Target A,Example Acquirer A,2025-11-03,2500000000,USD,10.4,3.2,US,https://example.com/mna1
+반도체,Example Target B,Example Acquirer B,2026-01-15,1800000000,USD,9.1,2.8,KR,https://example.com/mna2

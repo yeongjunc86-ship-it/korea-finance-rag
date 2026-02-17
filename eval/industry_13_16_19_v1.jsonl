@@ -1,0 +1,18 @@
+{"id":"i13_001","task":"query","question":"반도체 산업의 현재 밸류에이션 멀티플 평균을 요약해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":13,"expected_source_prefixes":["data/raw/valuation_"]}
+{"id":"i13_002","task":"query","question":"바이오 산업의 현재 밸류에이션 멀티플 평균을 정리해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":13,"expected_source_prefixes":["data/raw/valuation_"]}
+{"id":"i13_003","task":"query","question":"2차전지 산업의 현재 밸류에이션 멀티플 수준은?","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":13,"expected_source_prefixes":["data/raw/valuation_"]}
+{"id":"i13_004","task":"query","question":"자동차 산업 밸류에이션 멀티플 평균을 알려줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":13,"expected_source_prefixes":["data/raw/valuation_"]}
+{"id":"i13_005","task":"query","question":"클라우드 산업 밸류에이션 멀티플을 요약해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":13,"expected_source_prefixes":["data/raw/valuation_"]}
+{"id":"i13_006","task":"query","question":"에너지 산업 밸류에이션 멀티플 평균 추정치를 정리해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":13,"expected_source_prefixes":["data/raw/valuation_"]}
+{"id":"i16_001","task":"query","question":"반도체 시장의 TAM/SAM/SOM 추정치를 설명해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":16,"expected_source_prefixes":["data/raw/tam_"]}
+{"id":"i16_002","task":"query","question":"바이오 시장의 TAM/SAM/SOM 추정치를 정리해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":16,"expected_source_prefixes":["data/raw/tam_"]}
+{"id":"i16_003","task":"query","question":"2차전지 시장 TAM/SAM/SOM 규모를 요약해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":16,"expected_source_prefixes":["data/raw/tam_"]}
+{"id":"i16_004","task":"query","question":"자동차 시장 TAM/SAM/SOM 추정치를 알려줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":16,"expected_source_prefixes":["data/raw/tam_"]}
+{"id":"i16_005","task":"query","question":"클라우드 시장 TAM/SAM/SOM 추정치를 설명해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":16,"expected_source_prefixes":["data/raw/tam_"]}
+{"id":"i16_006","task":"query","question":"에너지 시장 TAM/SAM/SOM 추정치를 정리해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":16,"expected_source_prefixes":["data/raw/tam_"]}
+{"id":"i19_001","task":"query","question":"반도체 산업에서 원자재 가격 변동이 수익성에 미치는 영향을 설명해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":19,"expected_source_prefixes":["data/raw/commodity_"]}
+{"id":"i19_002","task":"query","question":"바이오 산업의 원자재 가격 민감도를 요약해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":19,"expected_source_prefixes":["data/raw/commodity_"]}
+{"id":"i19_003","task":"query","question":"2차전지 산업 원자재 가격 변동 리스크를 정리해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":19,"expected_source_prefixes":["data/raw/commodity_"]}
+{"id":"i19_004","task":"query","question":"자동차 산업의 원자재 가격 민감도와 수익성 영향은?","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":19,"expected_source_prefixes":["data/raw/commodity_"]}
+{"id":"i19_005","task":"query","question":"클라우드 산업에서 에너지/원자재 가격이 수익성에 미치는 영향을 요약해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":19,"expected_source_prefixes":["data/raw/commodity_"]}
+{"id":"i19_006","task":"query","question":"에너지 산업의 원자재 가격 변동 민감도를 설명해줘","expected_tickers":[],"top_k":8,"freshness_days":365,"focus_question_id":19,"expected_source_prefixes":["data/raw/commodity_"]}

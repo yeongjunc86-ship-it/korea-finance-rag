@@ -1,0 +1,2 @@
+company,ticker,market,esg_score,e_score,s_score,g_score,risk_flags,as_of,provider,source_url
+삼성전자,005930.KS,KOSPI,72.1,69.4,74.0,73.0,공급망;탄소배출,2026-12-31,ExampleESG,https://example.com/esg

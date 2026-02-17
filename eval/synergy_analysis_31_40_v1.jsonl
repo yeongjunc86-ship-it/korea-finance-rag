@@ -1,0 +1,30 @@
+{"id":"sy001_q31","company_name":"Samsung Electronics","question_id":31,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/market_share_","data/raw/patent_"]}
+{"id":"sy001_q32","company_name":"Samsung Electronics","question_id":32,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/dart_notes_"]}
+{"id":"sy001_q33","company_name":"Samsung Electronics","question_id":33,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/dart_notes_"]}
+{"id":"sy001_q34","company_name":"Samsung Electronics","question_id":34,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_"]}
+{"id":"sy001_q35","company_name":"Samsung Electronics","question_id":35,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_"]}
+{"id":"sy001_q36","company_name":"Samsung Electronics","question_id":36,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_"]}
+{"id":"sy001_q37","company_name":"Samsung Electronics","question_id":37,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/market_share_","data/raw/patent_"]}
+{"id":"sy001_q38","company_name":"Samsung Electronics","question_id":38,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/esg_","data/raw/news_"]}
+{"id":"sy001_q39","company_name":"Samsung Electronics","question_id":39,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_"]}
+{"id":"sy001_q40","company_name":"Samsung Electronics","question_id":40,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/dart_notes_","data/raw/mna_"]}
+{"id":"sy002_q31","company_name":"SK hynix","question_id":31,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/market_share_","data/raw/patent_"]}
+{"id":"sy002_q32","company_name":"SK hynix","question_id":32,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/dart_notes_"]}
+{"id":"sy002_q33","company_name":"SK hynix","question_id":33,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/dart_notes_"]}
+{"id":"sy002_q34","company_name":"SK hynix","question_id":34,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_"]}
+{"id":"sy002_q35","company_name":"SK hynix","question_id":35,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_"]}
+{"id":"sy002_q36","company_name":"SK hynix","question_id":36,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_"]}
+{"id":"sy002_q37","company_name":"SK hynix","question_id":37,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/market_share_","data/raw/patent_"]}
+{"id":"sy002_q38","company_name":"SK hynix","question_id":38,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/esg_","data/raw/news_"]}
+{"id":"sy002_q39","company_name":"SK hynix","question_id":39,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_"]}
+{"id":"sy002_q40","company_name":"SK hynix","question_id":40,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/dart_notes_","data/raw/mna_"]}
+{"id":"sy003_q31","company_name":"NAVER","question_id":31,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/market_share_","data/raw/patent_"]}
+{"id":"sy003_q32","company_name":"NAVER","question_id":32,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/dart_notes_"]}
+{"id":"sy003_q33","company_name":"NAVER","question_id":33,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/dart_notes_"]}
+{"id":"sy003_q34","company_name":"NAVER","question_id":34,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_"]}
+{"id":"sy003_q35","company_name":"NAVER","question_id":35,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_"]}
+{"id":"sy003_q36","company_name":"NAVER","question_id":36,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_"]}
+{"id":"sy003_q37","company_name":"NAVER","question_id":37,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/market_share_","data/raw/patent_"]}
+{"id":"sy003_q38","company_name":"NAVER","question_id":38,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/esg_","data/raw/news_"]}
+{"id":"sy003_q39","company_name":"NAVER","question_id":39,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_"]}
+{"id":"sy003_q40","company_name":"NAVER","question_id":40,"min_readiness":"부분","top_k_per_question":6,"expected_source_prefixes":["data/raw/synergy_case_","data/raw/dart_notes_","data/raw/mna_"]}

@@ -1,0 +1,10 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+jinja2==3.1.6
+python-dotenv==1.1.1
+requests==2.32.3
+pydantic==2.11.7
+pypdf==5.9.0
+yfinance==0.2.65
+pykrx==1.0.51
+setuptools>=70.0.0,<81

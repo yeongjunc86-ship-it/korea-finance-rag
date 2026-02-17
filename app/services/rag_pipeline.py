@@ -1,0 +1,2664 @@
+from __future__ import annotations
+
+import json
+import math
+import re
+import unicodedata
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from app.config import settings
+from app.services.ollama_client import OllamaClient
+
+
+def cosine_similarity(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    if na == 0 or nb == 0:
+        return 0.0
+    return dot / (na * nb)
+
+
+class RagPipeline:
+    ENTRY_TEMPLATE_COMPANY_OVERVIEW = "company_overview"
+    ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW = "기업 개요 분석"
+    ENTRY_TEMPLATE_ACQ_FEASIBILITY = "acquisition_feasibility"
+    ENTRY_TEMPLATE_NAME_ACQ_FEASIBILITY = "인수 타당성 분석"
+    ENTRY_TEMPLATE_PEER_LIST = "peer_list"
+    ENTRY_TEMPLATE_NAME_PEER_LIST = "유사 업체 리스트"
+    ENTRY_TEMPLATE_COMPARABLE_DEALS = "comparable_deals"
+    ENTRY_TEMPLATE_NAME_COMPARABLE_DEALS = "유사 거래 분석"
+    TARGET_ANALYSIS_QUESTIONS: list[tuple[int, str]] = [
+        (1, "{company}의 최근 5년 매출 성장률과 EBITDA 마진 추이를 정리해줘."),
+        (2, "{company}의 주요 매출 고객 상위 10개와 매출 의존도를 알려줘."),
+        (3, "{company}의 사업부별 매출 비중과 수익성을 비교해줘."),
+        (4, "{company}의 최근 3년 CAPEX 규모와 투자 방향성을 요약해줘."),
+        (5, "{company}의 현금흐름 구조에서 가장 취약한 부분을 설명해줘."),
+        (6, "{company}의 부채 만기 구조와 리파이낸싱 리스크를 정리해줘."),
+        (7, "{company}의 주요 경쟁사와 시장 점유율 비교표를 작성해줘."),
+        (8, "{company}의 핵심 기술 또는 특허를 요약해줘."),
+        (9, "{company}의 최근 소송/분쟁 이력을 요약해줘."),
+        (10, "{company}의 ESG 리스크 요인을 정리해줘."),
+    ]
+    INDUSTRY_ANALYSIS_QUESTIONS: list[tuple[int, str]] = [
+        (11, "{industry} 산업의 최근 5년 CAGR과 향후 5년 전망을 정리해줘."),
+        (12, "{industry} 산업 내 진입장벽을 정리해줘."),
+        (13, "{industry} 산업의 현재 밸류에이션 멀티플 평균을 요약해줘."),
+        (14, "{industry} 산업의 최근 M&A 사례를 정리해줘."),
+        (15, "{industry} 산업에서 규제 변화가 미치는 영향을 요약해줘."),
+        (16, "{industry} 시장의 TAM/SAM/SOM 추정치를 설명해줘."),
+        (17, "{industry} 산업의 해외 주요 플레이어와 국내 플레이어를 비교해줘."),
+        (18, "{industry} 산업의 기술 트렌드 변화를 요약해줘."),
+        (19, "{industry} 산업에서 원자재 가격 변동이 수익성에 미치는 영향을 설명해줘."),
+        (20, "{industry} 산업의 경기 침체 시 방어력을 평가해줘."),
+    ]
+    VALUATION_ANALYSIS_QUESTIONS: list[tuple[int, str]] = [
+        (21, "{company}의 적정 EV/EBITDA 멀티플 범위를 제시해줘."),
+        (22, "{company}의 최근 유사 거래 사례 기반 밸류에이션 비교표를 정리해줘."),
+        (23, "{company} DCF 기준 WACC 산정에 필요한 요소를 정리해줘."),
+        (24, "{company}의 보수적/중립/공격적 시나리오별 기업가치를 계산해줘."),
+        (25, "{company} 인수 프리미엄 20% 적용 시 IRR을 추정해줘."),
+        (26, "{company} 시너지 반영 전/후 기업가치를 비교해줘."),
+        (27, "{company} 동종 업계 평균 PER 대비 할인/할증 요인을 분석해줘."),
+        (28, "{company} 환율 변동이 기업가치에 미치는 영향을 설명해줘."),
+        (29, "{company} LBO 구조 적용 시 예상 레버리지 한도를 추정해줘."),
+        (30, "{company} EBITDA 조정 항목을 검토해줘."),
+    ]
+    SYNERGY_ANALYSIS_QUESTIONS: list[tuple[int, str]] = [
+        (31, "{company} 매출 시너지 가능 항목을 정리해줘."),
+        (32, "{company} 비용 시너지 가능 항목을 정리해줘."),
+        (33, "{company} 인력 중복 구조를 분석해줘."),
+        (34, "{company} 유통망 통합 시 비용 절감 효과를 정리해줘."),
+        (35, "{company} IT 시스템 통합 비용을 추정해줘."),
+        (36, "{company} 시너지 실현까지 걸리는 예상 기간을 제시해줘."),
+        (37, "{company} Cross-selling 가능성을 분석해줘."),
+        (38, "{company} 브랜드 통합 리스크를 정리해줘."),
+        (39, "{company} 조달 단가 통합 시 효과를 정리해줘."),
+        (40, "{company} 중복 법인/법무 구조를 정리해줘."),
+    ]
+    DUE_DILIGENCE_ANALYSIS_QUESTIONS: list[tuple[int, str]] = [
+        (41, "{company} 재무 실사 시 집중 점검해야 할 항목을 정리해줘."),
+        (42, "{company} 우발채무 가능성을 정리해줘."),
+        (43, "{company} 매출 인식 방식의 위험 요소를 분석해줘."),
+        (44, "{company} 재고 평가 방식의 문제 가능성을 분석해줘."),
+        (45, "{company} 세무 리스크를 요약해줘."),
+        (46, "{company} 핵심 인력 이탈 리스크를 분석해줘."),
+        (47, "{company} 주요 계약의 Change of Control 조항을 정리해줘."),
+        (48, "{company} 개인정보·보안 관련 리스크를 정리해줘."),
+        (49, "{company} 공급망 의존 리스크를 정리해줘."),
+        (50, "{company} PMI 실패 사례와 주요 원인을 정리해줘."),
+    ]
+    STRATEGIC_ANALYSIS_QUESTIONS: list[tuple[int, str]] = [
+        (51, "{company} 인수가 전략적 인수인지 재무적 투자에 가까운지 판단해줘."),
+        (52, "{company} 우리 회사 포트폴리오와의 전략적 적합성 점수를 제시해줘."),
+        (53, "{company} 인수 후 3년 내 Exit 전략을 제시해줘."),
+        (54, "{company} 인수하지 않을 경우 기회비용을 정리해줘."),
+        (55, "{company} 경쟁사가 인수할 경우 우리에게 미치는 영향을 분석해줘."),
+        (56, "{company} 단계적 지분 인수 구조 가능성을 검토해줘."),
+        (57, "{company} Earn-out 구조 설계안을 제시해줘."),
+        (58, "{company} 합병 vs 자회사 편입 중 무엇이 유리한지 비교해줘."),
+        (59, "{company} 현금 인수 vs 주식 교환 인수를 비교해줘."),
+        (60, "{company} 최적 딜 구조를 제안해줘."),
+    ]
+
+    def __init__(self) -> None:
+        self.client = OllamaClient(settings.ollama_base_url)
+        self._index_path = Path(settings.index_path)
+        self._state_path = self._index_path.parent / "index_state.json"
+        self._index_mtime: float | None = None
+        self._chunks: list[dict[str, Any]] = []
+        self._source_meta_cache: dict[str, dict[str, Any]] = {}
+        self._company_master_index: dict[str, dict[str, Any]] | None = None
+        self._company_manufacturing_cache: dict[str, bool | None] | None = None
+        self.reload_index()
+
+    @staticmethod
+    def _load_index(path: str) -> list[dict[str, Any]]:
+        p = Path(path)
+        if not p.exists():
+            return []
+        rows: list[dict[str, Any]] = []
+        with p.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                rows.append(json.loads(line))
+        return rows
+
+    def reload_index(self) -> int:
+        self._chunks = self._load_index(str(self._index_path))
+        if self._index_path.exists():
+            self._index_mtime = self._index_path.stat().st_mtime
+        else:
+            self._index_mtime = None
+        return len(self._chunks)
+
+    def _ensure_fresh_index(self) -> None:
+        if not self._index_path.exists():
+            if self._chunks:
+                self._chunks = []
+                self._index_mtime = None
+            return
+        current_mtime = self._index_path.stat().st_mtime
+        if self._index_mtime is None or current_mtime > self._index_mtime:
+            self.reload_index()
+
+    def has_index(self) -> bool:
+        self._ensure_fresh_index()
+        return len(self._chunks) > 0
+
+    def chunk_count(self) -> int:
+        self._ensure_fresh_index()
+        return len(self._chunks)
+
+    @staticmethod
+    def _to_iso_z(ts: float) -> str:
+        return datetime.fromtimestamp(ts, tz=UTC).isoformat().replace("+00:00", "Z")
+
+    def health_meta(self) -> dict[str, Any]:
+        self._ensure_fresh_index()
+
+        index_exists = self._index_path.exists()
+        index_size = self._index_path.stat().st_size if index_exists else 0
+        index_updated_at = self._to_iso_z(self._index_path.stat().st_mtime) if index_exists else None
+
+        index_version: int | None = None
+        indexed_doc_count = 0
+        state_updated_at: str | None = None
+        state_exists = self._state_path.exists()
+        if state_exists:
+            try:
+                payload = json.loads(self._state_path.read_text(encoding="utf-8"))
+                raw_version = payload.get("version")
+                if isinstance(raw_version, int):
+                    index_version = raw_version
+                files = payload.get("files")
+                if isinstance(files, dict):
+                    indexed_doc_count = len(files)
+                raw_state_updated = payload.get("updated_at")
+                if isinstance(raw_state_updated, str) and raw_state_updated.strip():
+                    state_updated_at = raw_state_updated
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        return {
+            "index_loaded": len(self._chunks) > 0,
+            "chunk_count": len(self._chunks),
+            "index_version": index_version,
+            "indexed_doc_count": indexed_doc_count,
+            "index_path": str(self._index_path),
+            "index_exists": index_exists,
+            "index_size_bytes": index_size,
+            "index_updated_at": index_updated_at,
+            "state_path": str(self._state_path),
+            "state_exists": state_exists,
+            "state_updated_at": state_updated_at,
+        }
+
+    def retrieve(self, query: str, top_k: int | None = None) -> list[dict[str, Any]]:
+        self._ensure_fresh_index()
+        if not self._chunks:
+            return []
+        k = top_k or settings.top_k
+        q_emb = self.client.embed(settings.ollama_embed_model, query)
+
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for row in self._chunks:
+            sim = cosine_similarity(q_emb, row["embedding"])
+            scored.append((sim, row))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        out: list[dict[str, Any]] = []
+        for score, row in scored[:k]:
+            out.append(
+                {
+                    "score": round(score, 4),
+                    "company": row.get("company"),
+                    "market": row.get("market"),
+                    "source": row.get("source"),
+                    "text": row.get("text", "")[:600],
+                }
+            )
+        return out
+
+    def answer(self, question: str, top_k: int | None = None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        k = top_k or settings.top_k
+        template_id, template_name = self._classify_entry_template(question)
+        if template_id == self.ENTRY_TEMPLATE_PEER_LIST:
+            requested = max(5, self._extract_requested_top_k(question))
+            similar_rows = self.similar_companies(question, top_k=requested)
+            sources = self._dedup_sources_from_rows(similar_rows)
+            industry_definition = self._peer_industry_definition(question, similar_rows)
+            screening_conditions = self._peer_screening_conditions(question, requested)
+            listed_companies = self._peer_listed_companies(similar_rows)
+            unlisted_companies = self._peer_unlisted_companies(similar_rows)
+            revenue_ebitda_table = self._peer_revenue_ebitda_table(similar_rows)
+            multiple_table = self._peer_multiple_table(similar_rows)
+            answer = {
+                "template_id": template_id,
+                "template_name": template_name,
+                "company_name": self._extract_company_from_query(question) or "정보 부족",
+                "market": "정보 부족",
+                "summary": (
+                    f"질의를 유사 업체 리스트 템플릿으로 분류했습니다. "
+                    f"근거 기반으로 상위 {len(similar_rows)}개 유사 업체를 제시합니다."
+                    if similar_rows
+                    else "질의를 유사 업체 리스트 템플릿으로 분류했지만 충분한 근거를 찾지 못했습니다."
+                ),
+                "company_overview": "유사 업체 리스트 템플릿 응답",
+                "business_structure": "정보 부족",
+                "revenue_operating_income_5y_trend": "정보 부족",
+                "ebitda": "정보 부족",
+                "market_cap": "정보 부족",
+                "competitors": [str(r.get("company") or "").strip() for r in similar_rows if str(r.get("company") or "").strip()],
+                "key_risks": [],
+                "recent_disclosures": [],
+                "highlights": [],
+                "financial_snapshot": {
+                    "market_cap": "정보 부족",
+                    "revenue": "정보 부족",
+                    "operating_income": "정보 부족",
+                    "net_income": "정보 부족",
+                },
+                "risks": [],
+                "sources": sources,
+                "similar_companies": [str(r.get("company") or "").strip() for r in similar_rows if str(r.get("company") or "").strip()],
+                "similar_companies_detail": similar_rows,
+                "industry_definition": industry_definition,
+                "screening_conditions": screening_conditions,
+                "listed_companies": listed_companies,
+                "unlisted_companies": unlisted_companies,
+                "revenue_ebitda_comparison": revenue_ebitda_table,
+                "multiple_comparison": multiple_table,
+            }
+            retrieved = [
+                {
+                    "score": float(r.get("score") or 0.0),
+                    "company": r.get("company"),
+                    "market": r.get("market"),
+                    "source": r.get("source"),
+                    "text": str(r.get("reason") or "")[:600],
+                }
+                for r in similar_rows
+            ]
+            return self._sanitize_answer(answer, retrieved), retrieved
+        template_id = self.ENTRY_TEMPLATE_COMPANY_OVERVIEW
+        template_name = self.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW
+
+        company_hint = self._extract_company_from_query(question)
+        if company_hint:
+            retrieved = self._retrieve_for_company_query(company_hint, question, top_k=k, allow_fallback=False)
+        else:
+            retrieved = self.retrieve(question, top_k=k)
+        if not retrieved:
+            msg = "질문에 필요한 근거를 찾지 못했습니다. 먼저 데이터를 수집하고 인덱스를 생성해 주세요."
+            if company_hint:
+                msg = (
+                    f"질문에서 감지한 대상 회사({company_hint})의 근거를 찾지 못했습니다. "
+                    "회사명 표기(예: 삼성전자/삼성전자(주)/005930)를 확인하거나 인덱스를 갱신해 주세요."
+                )
+            return {
+                "template_id": template_id,
+                "template_name": template_name,
+                "company_name": company_hint or "",
+                "market": "정보 부족",
+                "summary": msg,
+                "company_overview": msg,
+                "business_structure": "정보 부족",
+                "revenue_operating_income_5y_trend": "정보 부족",
+                "ebitda": "정보 부족",
+                "market_cap": "정보 부족",
+                "competitors": [],
+                "key_risks": [],
+                "recent_disclosures": [],
+                "highlights": [],
+                "financial_snapshot": {},
+                "risks": [],
+                "sources": [],
+                "similar_companies": [],
+            }, []
+
+        context = "\n\n".join(
+            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
+            for c in retrieved
+        )
+
+        prompt = f"""
+너는 한국 상장사 분석 어시스턴트다.
+아래 컨텍스트만 사용해 답해라. 모르면 추정하지 말고 빈 값이나 '정보 부족'으로 작성해라.
+출력은 반드시 JSON 객체 하나만 출력한다. 마크다운 금지.
+모든 설명 텍스트(summary, highlights, risks)는 한국어로 작성한다.
+기본 템플릿은 기업 개요 분석이며, 아래 항목 순서를 지켜 작성한다.
+필수 항목: 회사 개요, 사업부 구조, 매출/영업이익 5년 추이, EBITDA, 시가총액, 경쟁사, 핵심 리스크, 최근 주요 공시.
+
+JSON 스키마:
+{{
+  "template_id": "company_overview",
+  "template_name": "기업 개요 분석",
+  "company_name": "string",
+  "market": "KOSPI|KOSDAQ|OTHER|정보 부족",
+  "summary": "string",
+  "company_overview": "string",
+  "business_structure": "string",
+  "revenue_operating_income_5y_trend": "string",
+  "ebitda": "string",
+  "market_cap": "string",
+  "competitors": ["string"],
+  "key_risks": ["string"],
+  "recent_disclosures": ["string"],
+  "highlights": ["string"],
+  "financial_snapshot": {{
+    "market_cap": "string",
+    "revenue": "string",
+    "operating_income": "string",
+    "net_income": "string"
+  }},
+  "risks": ["string"],
+  "sources": ["string"],
+  "similar_companies": ["string"]
+}}
+
+질문:
+{question}
+
+질문 대상 회사:
+{company_hint or "명시되지 않음"}
+
+컨텍스트:
+{context}
+""".strip()
+
+        answer = self.client.generate_json(settings.ollama_chat_model, prompt)
+        answer = self._sanitize_answer(answer, retrieved)
+        answer["template_id"] = template_id
+        answer["template_name"] = template_name
+        if company_hint:
+            answer["company_name"] = company_hint
+            cm = self._company_master_item(company_hint)
+            if isinstance(cm, dict):
+                markets = cm.get("markets")
+                if isinstance(markets, list):
+                    mk = next((str(x).upper() for x in markets if str(x).upper() in {"KOSPI", "KOSDAQ", "OTHER"}), "")
+                    if mk:
+                        answer["market"] = mk
+        answer = self._backfill_answer_from_evidence(
+            answer=answer,
+            retrieved=retrieved,
+            company_hint=company_hint,
+            question=question,
+        )
+        return answer, retrieved
+
+    def _classify_entry_template(self, question: str) -> tuple[str, str]:
+        q = (question or "").strip()
+        if not q:
+            return self.ENTRY_TEMPLATE_COMPANY_OVERVIEW, self.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW
+        prompt = f"""
+너는 질의 라우터다. 아래 사용자 질의를 읽고 템플릿 1개만 선택하라.
+출력은 JSON 하나만 반환한다.
+
+허용 template_id:
+- {self.ENTRY_TEMPLATE_COMPANY_OVERVIEW}: 기업 개요/재무/리스크/공시 중심
+- {self.ENTRY_TEMPLATE_PEER_LIST}: 유사 업체/동종 기업 목록 추천
+
+JSON 스키마:
+{{
+  "template_id": "company_overview|peer_list",
+  "confidence": 0.0,
+  "reason": "string"
+}}
+
+분류 기준:
+- company_overview: 특정 기업의 개요/사업구조/재무/리스크/공시를 설명해 달라는 요청
+- peer_list: 특정 기업 또는 주제와 관련된 업체/기업 목록, 유사 업체, 동종 업체, 경쟁사 리스트 요청
+
+예시:
+- "삼성전자 개요 알려줘" -> company_overview
+- "삼성전자 관련 업체는?" -> peer_list
+- "2차전지 유사 업체 리스트" -> peer_list
+- "네이버 사업부 구조와 5년 실적" -> company_overview
+
+사용자 질의:
+{q}
+""".strip()
+        raw = self.client.generate_json(settings.ollama_chat_model, prompt)
+        valid = {
+            self.ENTRY_TEMPLATE_COMPANY_OVERVIEW: self.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW,
+            self.ENTRY_TEMPLATE_PEER_LIST: self.ENTRY_TEMPLATE_NAME_PEER_LIST,
+        }
+        if isinstance(raw, dict):
+            tid = str(raw.get("template_id") or "").strip()
+            if tid in valid:
+                return tid, valid[tid]
+            # generate_json() parse 실패 시 raw 텍스트를 담아줄 수 있어 보조 파싱
+            raw_text = str(raw.get("raw") or "").strip().lower()
+            if "peer_list" in raw_text:
+                return self.ENTRY_TEMPLATE_PEER_LIST, self.ENTRY_TEMPLATE_NAME_PEER_LIST
+            if "company_overview" in raw_text:
+                return self.ENTRY_TEMPLATE_COMPANY_OVERVIEW, self.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW
+
+        # 2차 LLM 분류(단일 토큰 응답). 여기도 LLM 판단으로 처리.
+        retry_prompt = f"""
+아래 질의를 템플릿 1개로 분류하라.
+출력은 아래 두 단어 중 하나만 출력한다(설명 금지):
+- company_overview
+- peer_list
+
+규칙:
+- 업체/기업 리스트, 유사업체, 동종업체, 경쟁사 목록 요청이면 peer_list
+- 특정 회사의 개요/재무/리스크/공시면 company_overview
+
+질의: {q}
+""".strip()
+        retry_raw = self.client.generate_json(settings.ollama_chat_model, retry_prompt)
+        if isinstance(retry_raw, dict):
+            cand = str(retry_raw.get("template_id") or retry_raw.get("raw") or "").strip().lower()
+            if "peer_list" in cand:
+                return self.ENTRY_TEMPLATE_PEER_LIST, self.ENTRY_TEMPLATE_NAME_PEER_LIST
+            if "company_overview" in cand:
+                return self.ENTRY_TEMPLATE_COMPANY_OVERVIEW, self.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW
+
+        # 최종 폴백
+        return self.ENTRY_TEMPLATE_COMPANY_OVERVIEW, self.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW
+
+    @staticmethod
+    def _dedup_sources_from_rows(rows: list[dict[str, Any]]) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for r in rows:
+            s = str(r.get("source") or "").strip()
+            if not s or s in seen:
+                continue
+            seen.add(s)
+            out.append(s)
+        return out
+
+    def _peer_industry_definition(self, question: str, rows: list[dict[str, Any]]) -> str:
+        terms = [t for t in self._query_terms(question) if t][:4]
+        top_names = [str(r.get("company") or "").strip() for r in rows[:3] if str(r.get("company") or "").strip()]
+        if terms:
+            base = f"질의 핵심 키워드({', '.join(terms)})와 벡터 유사도를 기준으로 동종/인접 산업군을 정의했습니다."
+        else:
+            base = "질의 문맥과 벡터 유사도를 기준으로 동종/인접 산업군을 정의했습니다."
+        if top_names:
+            base += f" 대표 후보는 {', '.join(top_names)} 입니다."
+        return base
+
+    @staticmethod
+    def _peer_screening_conditions(question: str, requested: int) -> list[str]:
+        q = (question or "").strip()
+        return [
+            f"질의 원문 기반 유사도 검색 수행: {q if q else '정보 부족'}",
+            f"상위 후보 수: {requested}개",
+            "상장사 우선(KOSPI/KOSDAQ/OTHER), 데이터 부족 시 정보 부족 표기",
+            "근거 출처가 있는 기업만 비교표에 반영",
+        ]
+
+    @staticmethod
+    def _peer_listed_companies(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            company = str(r.get("company") or "").strip()
+            market = str(r.get("market") or "정보 부족").upper()
+            if not company:
+                continue
+            if market not in {"KOSPI", "KOSDAQ", "OTHER"}:
+                continue
+            out.append(
+                {
+                    "company": company,
+                    "market": market,
+                    "strategic_fit_score": int(r.get("strategic_fit_score")) if isinstance(r.get("strategic_fit_score"), int) else None,
+                    "reason": str(r.get("reason") or "정보 부족"),
+                    "source": str(r.get("source") or "정보 부족"),
+                }
+            )
+        return out
+
+    @staticmethod
+    def _peer_unlisted_companies(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            company = str(r.get("company") or "").strip()
+            market = str(r.get("market") or "정보 부족").upper()
+            if not company:
+                continue
+            if market in {"KOSPI", "KOSDAQ", "OTHER"}:
+                continue
+            out.append(
+                {
+                    "company": company,
+                    "market": market or "정보 부족",
+                    "source": str(r.get("source") or "정보 부족"),
+                }
+            )
+        return out
+
+    def _peer_company_metrics(self, source: str) -> dict[str, str]:
+        p = self._resolve_existing_json_path(source)
+        if p is None:
+            return {"revenue": "정보 부족", "ebitda": "정보 부족", "ev_ebitda": "정보 부족", "per": "정보 부족"}
+        payload = self._safe_read_json(p)
+        if not isinstance(payload, dict):
+            return {"revenue": "정보 부족", "ebitda": "정보 부족", "ev_ebitda": "정보 부족", "per": "정보 부족"}
+
+        latest_rev: str = "정보 부족"
+        latest_ebitda: str = "정보 부족"
+        f5 = payload.get("financials_5y") if isinstance(payload.get("financials_5y"), dict) else {}
+        years = f5.get("years") if isinstance(f5.get("years"), list) else []
+        latest_year = -1
+        latest_row: dict[str, Any] | None = None
+        for y in years:
+            if not isinstance(y, dict):
+                continue
+            yr_raw = y.get("year")
+            yr = yr_raw if isinstance(yr_raw, int) else int(yr_raw) if isinstance(yr_raw, str) and yr_raw.isdigit() else -1
+            if yr > latest_year:
+                latest_year = yr
+                latest_row = y
+        if isinstance(latest_row, dict):
+            rv = self._to_float(latest_row.get("revenue"))
+            if rv is not None:
+                latest_rev = self._number_text(rv)
+            mgn = self._to_float(latest_row.get("ebitda_margin_pct"))
+            if mgn is not None:
+                latest_ebitda = f"{mgn:.2f}%"
+
+        profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else {}
+        ev_ebitda = self._to_float(profile.get("ev_ebitda") or profile.get("enterprise_to_ebitda") or payload.get("ev_ebitda"))
+        per = self._to_float(profile.get("trailing_pe") or profile.get("per") or payload.get("per"))
+        return {
+            "revenue": latest_rev,
+            "ebitda": latest_ebitda,
+            "ev_ebitda": self._number_text(ev_ebitda) if ev_ebitda is not None else "정보 부족",
+            "per": self._number_text(per) if per is not None else "정보 부족",
+        }
+
+    def _peer_revenue_ebitda_table(self, rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+        for r in rows:
+            company = str(r.get("company") or "").strip()
+            source = str(r.get("source") or "").strip()
+            if not company:
+                continue
+            m = self._peer_company_metrics(source)
+            out.append(
+                {
+                    "company": company,
+                    "revenue": m["revenue"],
+                    "ebitda": m["ebitda"],
+                }
+            )
+            if len(out) >= 10:
+                break
+        return out
+
+    def _peer_multiple_table(self, rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+        for r in rows:
+            company = str(r.get("company") or "").strip()
+            source = str(r.get("source") or "").strip()
+            if not company:
+                continue
+            m = self._peer_company_metrics(source)
+            out.append(
+                {
+                    "company": company,
+                    "ev_ebitda": m["ev_ebitda"],
+                    "per": m["per"],
+                }
+            )
+            if len(out) >= 10:
+                break
+        return out
+
+    def target_analysis(self, company_name: str, top_k_per_question: int = 6) -> dict[str, Any]:
+        self._ensure_fresh_index()
+        coverage = self._company_source_coverage(company_name)
+        results: list[dict[str, Any]] = []
+
+        for question_id, template in self.TARGET_ANALYSIS_QUESTIONS:
+            question = template.format(company=company_name)
+            readiness = self._target_question_readiness(question_id, coverage)
+            retrieved = self._retrieve_for_company_query(company_name, question, top_k=top_k_per_question)
+            sources = self._dedup_sources(retrieved)
+
+            if readiness == "불가":
+                answer_text = self._target_unavailable_message(question_id)
+            else:
+                answer_text = self._answer_target_question(
+                    company_name=company_name,
+                    question=question,
+                    readiness=readiness,
+                    retrieved=retrieved,
+                )
+
+            results.append(
+                {
+                    "question_id": question_id,
+                    "question": question,
+                    "readiness": readiness,
+                    "answer": answer_text,
+                    "evidence_sources": sources,
+                }
+            )
+
+        return {
+            "company_name": company_name,
+            "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "results": results,
+        }
+
+    def industry_analysis(self, industry_name: str, top_k_per_question: int = 6) -> dict[str, Any]:
+        self._ensure_fresh_index()
+        coverage = self._industry_source_coverage(industry_name)
+        results: list[dict[str, Any]] = []
+
+        for question_id, template in self.INDUSTRY_ANALYSIS_QUESTIONS:
+            question = template.format(industry=industry_name)
+            readiness = self._industry_question_readiness(question_id, coverage)
+            retrieved = self._retrieve_for_industry_query(industry_name, question, top_k=top_k_per_question)
+            sources = self._dedup_sources(retrieved)
+
+            if readiness == "불가":
+                answer_text = self._industry_unavailable_message(question_id)
+            else:
+                answer_text = self._answer_industry_question(
+                    industry_name=industry_name,
+                    question=question,
+                    readiness=readiness,
+                    retrieved=retrieved,
+                )
+
+            results.append(
+                {
+                    "question_id": question_id,
+                    "question": question,
+                    "readiness": readiness,
+                    "answer": answer_text,
+                    "evidence_sources": sources,
+                }
+            )
+
+        return {
+            "industry_name": industry_name,
+            "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "results": results,
+        }
+
+    def valuation_analysis(self, company_name: str, top_k_per_question: int = 6) -> dict[str, Any]:
+        self._ensure_fresh_index()
+        coverage = self._company_source_coverage(company_name)
+        results: list[dict[str, Any]] = []
+
+        for question_id, template in self.VALUATION_ANALYSIS_QUESTIONS:
+            question = template.format(company=company_name)
+            readiness = self._valuation_question_readiness(question_id, coverage)
+            retrieved = self._retrieve_for_company_query(company_name, question, top_k=top_k_per_question)
+            sources = self._dedup_sources(retrieved)
+
+            if readiness == "불가":
+                answer_text = self._valuation_unavailable_message(question_id)
+            else:
+                answer_text = self._answer_valuation_question(
+                    company_name=company_name,
+                    question=question,
+                    readiness=readiness,
+                    retrieved=retrieved,
+                )
+
+            results.append(
+                {
+                    "question_id": question_id,
+                    "question": question,
+                    "readiness": readiness,
+                    "answer": answer_text,
+                    "evidence_sources": sources,
+                }
+            )
+
+        return {
+            "company_name": company_name,
+            "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "results": results,
+        }
+
+    def synergy_analysis(self, company_name: str, top_k_per_question: int = 6) -> dict[str, Any]:
+        self._ensure_fresh_index()
+        coverage = self._company_source_coverage(company_name)
+        results: list[dict[str, Any]] = []
+
+        for question_id, template in self.SYNERGY_ANALYSIS_QUESTIONS:
+            question = template.format(company=company_name)
+            readiness = self._synergy_question_readiness(question_id, coverage)
+            retrieved = self._retrieve_for_company_query(company_name, question, top_k=top_k_per_question)
+            sources = self._dedup_sources(retrieved)
+
+            if readiness == "불가":
+                answer_text = self._synergy_unavailable_message(question_id)
+            else:
+                answer_text = self._answer_synergy_question(
+                    company_name=company_name,
+                    question=question,
+                    readiness=readiness,
+                    retrieved=retrieved,
+                )
+
+            results.append(
+                {
+                    "question_id": question_id,
+                    "question": question,
+                    "readiness": readiness,
+                    "answer": answer_text,
+                    "evidence_sources": sources,
+                }
+            )
+
+        return {
+            "company_name": company_name,
+            "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "results": results,
+        }
+
+    def due_diligence_analysis(self, company_name: str, top_k_per_question: int = 6) -> dict[str, Any]:
+        self._ensure_fresh_index()
+        coverage = self._company_source_coverage(company_name)
+        results: list[dict[str, Any]] = []
+
+        for question_id, template in self.DUE_DILIGENCE_ANALYSIS_QUESTIONS:
+            question = template.format(company=company_name)
+            readiness = self._due_diligence_question_readiness(question_id, coverage)
+            retrieved = self._retrieve_for_company_query(company_name, question, top_k=top_k_per_question)
+            sources = self._dedup_sources(retrieved)
+
+            if readiness == "불가":
+                answer_text = self._due_diligence_unavailable_message(question_id)
+            else:
+                answer_text = self._answer_due_diligence_question(
+                    company_name=company_name,
+                    question=question,
+                    readiness=readiness,
+                    retrieved=retrieved,
+                )
+
+            results.append(
+                {
+                    "question_id": question_id,
+                    "question": question,
+                    "readiness": readiness,
+                    "answer": answer_text,
+                    "evidence_sources": sources,
+                }
+            )
+
+        return {
+            "company_name": company_name,
+            "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "results": results,
+        }
+
+    def strategic_analysis(self, company_name: str, top_k_per_question: int = 6) -> dict[str, Any]:
+        self._ensure_fresh_index()
+        coverage = self._company_source_coverage(company_name)
+        results: list[dict[str, Any]] = []
+
+        for question_id, template in self.STRATEGIC_ANALYSIS_QUESTIONS:
+            question = template.format(company=company_name)
+            readiness = self._strategic_question_readiness(question_id, coverage)
+            retrieved = self._retrieve_for_company_query(company_name, question, top_k=top_k_per_question)
+            sources = self._dedup_sources(retrieved)
+
+            if readiness == "불가":
+                answer_text = self._strategic_unavailable_message(question_id)
+            else:
+                answer_text = self._answer_strategic_question(
+                    company_name=company_name,
+                    question=question,
+                    readiness=readiness,
+                    retrieved=retrieved,
+                )
+
+            results.append(
+                {
+                    "question_id": question_id,
+                    "question": question,
+                    "readiness": readiness,
+                    "answer": answer_text,
+                    "evidence_sources": sources,
+                }
+            )
+
+        return {
+            "company_name": company_name,
+            "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "results": results,
+        }
+
+    def similar_companies(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
+        self._ensure_fresh_index()
+        if not self._chunks:
+            return []
+
+        top_k = max(top_k, self._extract_requested_top_k(query))
+        q_emb = self.client.embed(settings.ollama_embed_model, query)
+        query_terms = self._query_terms(query)
+        core_terms, expanded_terms = self._expanded_terms(query_terms)
+        has_topic_terms = len(core_terms) > 0
+        intent = self._intent_flags(query, core_terms, expanded_terms)
+
+        scored_rows: list[tuple[float, dict[str, Any], list[str]]] = []
+        for row in self._chunks:
+            text = str(row.get("text") or "")
+            emb = row.get("embedding")
+            if not isinstance(emb, list):
+                continue
+            if not self._passes_intent_filter(row, text, intent):
+                continue
+            semantic = cosine_similarity(q_emb, emb)
+            lexical, matched = self._lexical_score(text, expanded_terms)
+            core_lexical, core_matched = self._lexical_score(text, core_terms)
+
+            # 의미 유사도 + 질의 핵심키워드 일치도를 함께 반영
+            score = (0.65 * semantic) + (0.35 * lexical)
+            # 키워드가 있는 질의인데 본문 매칭이 0이면 감점
+            if has_topic_terms and core_lexical <= 0:
+                score *= 0.35
+
+            scored_rows.append((score, row, core_matched or matched))
+
+        if has_topic_terms:
+            # 핵심어와 한 개라도 맞는 후보가 있으면 그 후보군만 유지
+            matched_rows = [x for x in scored_rows if x[2]]
+            if matched_rows and not intent.get("manufacturing"):
+                scored_rows = matched_rows
+
+        scored_rows.sort(key=lambda x: x[0], reverse=True)
+
+        # 기업 단위로 집계하여 가장 점수가 높은 근거를 대표로 사용
+        best_by_company: dict[str, dict[str, Any]] = {}
+        for score, row, matched in scored_rows:
+            company = str(row.get("company") or "").strip()
+            if not company:
+                continue
+
+            market = self._normalize_market(str(row.get("market") or ""))
+            if market in {"", "UNKNOWN", "OTHER"}:
+                cm = self._company_master_item(company)
+                if isinstance(cm, dict):
+                    markets = cm.get("markets")
+                    if isinstance(markets, list):
+                        pick = next((str(x) for x in markets if str(x).upper() in {"KOSPI", "KOSDAQ"}), "")
+                        if pick:
+                            market = pick.upper()
+            source = str(row.get("source") or "")
+            strategic_fit_score = int(round(max(0.0, min(1.0, score)) * 100))
+            if strategic_fit_score < 1:
+                continue
+
+            reason = self._build_similarity_reason(core_terms, matched, strategic_fit_score)
+            existing = best_by_company.get(company)
+            cand = {
+                "company": company,
+                "market": market,
+                "score": round(max(0.0, min(1.0, score)), 4),
+                "strategic_fit_score": strategic_fit_score,
+                "reason": reason,
+                "source": source,
+            }
+
+            if existing is None:
+                best_by_company[company] = cand
+                continue
+
+            cand_rank = float(cand["score"]) + (self._source_quality(source) * 0.01)
+            existing_rank = float(existing.get("score", 0.0)) + (
+                self._source_quality(str(existing.get("source") or "")) * 0.01
+            )
+            if cand_rank > existing_rank:
+                best_by_company[company] = cand
+            elif existing.get("market") in {"", "UNKNOWN"} and market not in {"", "UNKNOWN"}:
+                existing["market"] = market
+
+        ranked = sorted(best_by_company.values(), key=lambda x: x["score"], reverse=True)
+        return ranked[:top_k]
+
+    @staticmethod
+    def _normalize_market(market: str) -> str:
+        m = (market or "").strip().upper()
+        if not m:
+            return "UNKNOWN"
+        return m
+
+    @staticmethod
+    def _query_terms(query: str) -> list[str]:
+        q = (query or "").lower()
+        raw = re.findall(r"[a-z0-9가-힣]+", q)
+        out: list[str] = []
+        normalize_map = {
+            "방산업": "방산",
+            "방산업체": "방산",
+            "방산기업": "방산",
+            "방위산": "방산",
+            "방위산업": "방산",
+            "방위산업체": "방산",
+            "방위산업기업": "방산",
+            "방위사업": "방산",
+            "방위사업체": "방산",
+            "제조업": "제조",
+            "자동차업": "자동차",
+            "바이오업": "바이오",
+        }
+        for tok in raw:
+            t0 = tok.strip().lower()
+            if not t0 or t0.isdigit():
+                continue
+
+            pieces: list[str] = [t0]
+            if t0 in normalize_map:
+                pieces = [normalize_map[t0], t0]
+            elif t0.endswith("산업") and len(t0) > 2:
+                pieces = [t0[:-2], t0]
+            if re.match(r"^\d+차전지$", t0):
+                pieces = [t0]
+            elif re.match(r"^ai[가-힣]+$", t0):
+                pieces = ["ai", t0[2:]]
+            elif re.match(r"^[a-z]+[가-힣]+$", t0):
+                m = re.match(r"^([a-z]+)([가-힣]+)$", t0)
+                if m:
+                    pieces = [m.group(1), m.group(2)]
+
+            for p in pieces:
+                t = RagPipeline._trim_korean_suffix(p)
+                if RagPipeline._is_noise_term(t):
+                    continue
+                if len(t) < 2:
+                    continue
+                out.append(t)
+        dedup: list[str] = []
+        seen: set[str] = set()
+        for t in out:
+            if t in seen:
+                continue
+            seen.add(t)
+            dedup.append(t)
+        return dedup
+
+    @staticmethod
+    def _expanded_terms(query_terms: list[str]) -> tuple[list[str], list[str]]:
+        synonyms: dict[str, list[str]] = {
+            "ai": ["ai", "인공지능", "생성형", "llm", "모델", "데이터센터", "반도체", "gpu"],
+            "인공지능": ["ai", "인공지능", "생성형", "llm", "모델", "데이터센터", "반도체", "gpu"],
+            "반도체": ["반도체", "파운드리", "메모리", "칩", "gpu", "npu"],
+            "배터리": ["배터리", "2차전지", "양극재", "음극재", "전해질"],
+            "2차전지": ["배터리", "2차전지", "양극재", "음극재", "전해질"],
+            "바이오": ["바이오", "신약", "임상", "제약", "바이오시밀러"],
+            "제약": ["제약", "신약", "임상", "바이오"],
+            "방산": ["방산", "국방", "미사일", "항공우주", "무기체계"],
+            "방위": ["방산", "방위", "국방", "미사일", "항공우주", "무기체계", "defense", "military", "aerospace"],
+            "방위산업": ["방산", "방위", "국방", "미사일", "항공우주", "무기체계", "defense", "military", "aerospace"],
+            "조선": ["조선", "해양", "선박", "lng선"],
+            "자동차": ["자동차", "전기차", "자율주행", "모빌리티"],
+            "로봇": ["로봇", "자동화", "센서", "모빌리티"],
+            "클라우드": ["클라우드", "데이터센터", "saas", "인프라"],
+            "에너지": ["에너지", "신재생", "태양광", "풍력", "전력", "원전"],
+            "제조업": ["제조업", "제조", "생산", "공장", "부품", "소재", "장비", "가공"],
+            "제조": ["제조업", "제조", "생산", "공장", "부품", "소재", "장비", "가공"],
+        }
+        core = list(query_terms)
+        out: list[str] = list(core)
+        for t in query_terms:
+            out.extend(synonyms.get(t, []))
+        # 순서 보존 중복 제거
+        dedup: list[str] = []
+        seen: set[str] = set()
+        for t in out:
+            tt = t.strip().lower()
+            if not tt or tt in seen:
+                continue
+            seen.add(tt)
+            dedup.append(tt)
+        return core, dedup
+
+    @staticmethod
+    def _trim_korean_suffix(term: str) -> str:
+        if not term:
+            return term
+        suffixes = [
+            "으로", "에서", "에게", "까지", "부터", "처럼", "보다", "만의",
+            "관련", "업체", "기업", "회사", "종목", "분야", "산업",
+            "입니다", "해줘", "해주세요", "알려줘", "찾아줘", "추천해줘",
+            "들을", "들을", "들을", "들을",
+            "들은", "들이", "들을", "으로", "에서", "에게", "과", "와",
+            "을", "를", "은", "는", "이", "가", "도", "만",
+        ]
+        out = term
+        changed = True
+        while changed:
+            changed = False
+            for s in suffixes:
+                if len(out) > len(s) and out.endswith(s):
+                    out = out[: -len(s)]
+                    changed = True
+                    break
+        return out.strip()
+
+    @staticmethod
+    def _is_noise_term(term: str) -> bool:
+        if not term:
+            return True
+        if re.match(r"^\d+(곳|개|건)$", term):
+            return True
+        stopwords = {
+            "관련", "업체", "기업", "회사", "조사", "추천", "국내", "해외", "리스트",
+            "가능", "가능성", "검토", "분석", "보고서", "요약", "비교", "후보",
+            "어떤", "어느", "무엇", "찾", "알려", "알려줘", "찾아줘", "해줘", "정리", "정도", "가장",
+            "곳", "개", "건", "질문", "최근", "향후", "부탁", "추천해줘", "유사", "업체들", "기업들",
+        }
+        if term in stopwords:
+            return True
+        if len(term) <= 1:
+            return True
+        return False
+
+    @staticmethod
+    def _lexical_score(text: str, terms: list[str]) -> tuple[float, list[str]]:
+        if not terms:
+            return 0.0, []
+        lt = (text or "").lower()
+        tokens = re.findall(r"[a-zA-Z0-9가-힣]+", lt)
+        token_set = set(tokens)
+
+        matched: list[str] = []
+        for t in terms:
+            tt = t.lower().strip()
+            if not tt:
+                continue
+            # 짧은 토큰(예: ai)은 정확히 단어 단위로만 매칭
+            if len(tt) <= 2:
+                if tt in token_set:
+                    matched.append(tt)
+                continue
+            # 긴 토큰은 단어 일치 우선, 합성어 대응 위해 부분 일치 보조 허용
+            if tt in token_set or tt in lt:
+                matched.append(tt)
+
+        score = len(set(matched)) / max(1, len(set(terms)))
+        return min(1.0, score), list(dict.fromkeys(matched))
+
+    @staticmethod
+    def _build_similarity_reason(query_terms: list[str], matched_terms: list[str], score_100: int) -> str:
+        low_conf_note = " 다만 현재 확보된 관련 데이터가 제한적이어서 추가 검토가 필요합니다." if score_100 < 35 else ""
+        if matched_terms:
+            top = ", ".join(matched_terms[:3])
+            return (
+                f"질문 핵심 주제와 맞는 키워드({top})가 기사/문서에서 확인되어 "
+                f"전략 적합성 점수를 {score_100}점으로 평가했습니다.{low_conf_note}"
+            )
+        if query_terms:
+            top = ", ".join(query_terms[:2])
+            return (
+                f"질문 주제({top})와 문맥 유사도가 비교적 높아 "
+                f"전략 검토 후보로 {score_100}점으로 제시했습니다.{low_conf_note}"
+            )
+        return f"질문 문맥과의 전반적 유사도를 기반으로 {score_100}점으로 평가했습니다.{low_conf_note}"
+
+    @staticmethod
+    def _intent_flags(query: str, core_terms: list[str], expanded_terms: list[str]) -> dict[str, bool]:
+        q = (query or "").lower()
+        terms = set([t.lower() for t in core_terms] + [t.lower() for t in expanded_terms])
+        manufacturing_triggers = {"제조", "제조업", "생산", "공장", "부품", "소재", "장비", "가공"}
+        manufacturing = any(t in terms for t in manufacturing_triggers) or ("제조업" in q)
+        required_keywords = RagPipeline._required_keywords_from_terms(terms)
+        return {"manufacturing": manufacturing, "required_keywords": bool(required_keywords), "rk": required_keywords}
+
+    def _passes_intent_filter(self, row: dict[str, Any], text: str, intent: dict[str, bool]) -> bool:
+        if intent.get("manufacturing"):
+            if not self._is_manufacturing_candidate(row, text):
+                return False
+        rk = intent.get("rk")
+        if isinstance(rk, set) and rk:
+            if not self._row_matches_keywords(row, text, rk):
+                return False
+        return True
+
+    @staticmethod
+    def _required_keywords_from_terms(terms: set[str]) -> set[str]:
+        theme_map: dict[str, set[str]] = {
+            "방산": {
+                "방산",
+                "방위",
+                "방위산업",
+                "방위사업",
+                "국방",
+                "미사일",
+                "무기",
+                "항공우주",
+                "defense",
+                "defence",
+                "military",
+                "aerospace",
+            },
+            "반도체": {"반도체", "파운드리", "메모리", "칩", "semiconductor", "foundry", "memory"},
+            "바이오": {"바이오", "제약", "신약", "임상", "biotech", "pharma", "drug"},
+            "2차전지": {"2차전지", "배터리", "양극재", "음극재", "battery", "cathode", "anode"},
+            "자동차": {"자동차", "완성차", "모빌리티", "전기차", "automotive", "ev"},
+        }
+        out: set[str] = set()
+        for k, kws in theme_map.items():
+            if k in terms or any(kw in terms for kw in kws):
+                out.update(kws)
+        return out
+
+    def _row_matches_keywords(self, row: dict[str, Any], text: str, keywords: set[str]) -> bool:
+        lt = (text or "").lower()
+        if any(k in lt for k in keywords):
+            return True
+
+        company = str(row.get("company") or "").strip()
+        cm = self._company_master_item(company)
+        if isinstance(cm, dict):
+            bag = " ".join(
+                [
+                    str(cm.get("industry") or ""),
+                    str(cm.get("sector") or ""),
+                    str(cm.get("industry_code") or ""),
+                    " ".join(str(x) for x in (cm.get("aliases") or []) if str(x).strip()),
+                ]
+            ).lower()
+            if any(k in bag for k in keywords):
+                return True
+        return False
+
+    def _is_manufacturing_candidate(self, row: dict[str, Any], text: str) -> bool:
+        company = str(row.get("company") or "").strip()
+        company_flag = self._company_manufacturing(company)
+        if company_flag is True:
+            return True
+        if company_flag is False:
+            return False
+
+        source = str(row.get("source") or "")
+        meta = self._source_meta(source)
+        if meta.get("is_manufacturing") is True:
+            return True
+        if meta.get("is_manufacturing") is False:
+            return False
+
+        # 뉴스 단편 키워드(공장/생산 등)만으로는 제조업으로 보지 않는다.
+        if source.lower().endswith(".json") and "news_" in source.lower():
+            return False
+
+        # 메타 근거가 전혀 없으면 제조업 후보에서 제외해 정밀도 우선
+        _ = text
+        return False
+
+    @staticmethod
+    def _extract_requested_top_k(query: str) -> int:
+        q = (query or "").lower()
+        m = re.search(r"(\d{1,2})\s*(개|곳|종목|기업|업체)", q)
+        if not m:
+            return 5
+        try:
+            n = int(m.group(1))
+        except ValueError:
+            return 5
+        return max(1, min(20, n))
+
+    def _source_meta(self, source_path: str) -> dict[str, Any]:
+        p = str(source_path or "")
+        if not p:
+            return {}
+        cached = self._source_meta_cache.get(p)
+        if cached is not None:
+            return cached
+
+        out: dict[str, Any] = {"is_manufacturing": None}
+        path = Path(p)
+        if not path.is_absolute():
+            root = Path(__file__).resolve().parents[2]
+            path = (root / path).resolve()
+        if not path.exists() or not path.is_file():
+            self._source_meta_cache[p] = out
+            return out
+
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            self._source_meta_cache[p] = out
+            return out
+        if not isinstance(payload, dict):
+            self._source_meta_cache[p] = out
+            return out
+
+        if path.name.startswith("dart_"):
+            dart = payload.get("dart") if isinstance(payload.get("dart"), dict) else {}
+            ind = str(dart.get("induty_code") or "").strip()
+            if ind and ind[:2].isdigit():
+                sec = int(ind[:2])
+                out["is_manufacturing"] = 10 <= sec <= 34
+        elif path.name.startswith("yahoo_"):
+            profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else {}
+            industry = str(profile.get("industry") or "").lower()
+            sector = str(profile.get("sector") or "").lower()
+            text = f"{industry} {sector}"
+            if text.strip():
+                if any(
+                    k in text
+                    for k in [
+                        "insurance",
+                        "bank",
+                        "financial",
+                        "asset management",
+                        "brokerage",
+                        "construction",
+                        "engineering",
+                        "software",
+                        "internet",
+                        "telecom",
+                        "media",
+                        "retail",
+                        "services",
+                        "transportation",
+                        "utilities",
+                    ]
+                ):
+                    out["is_manufacturing"] = False
+                elif any(k in text for k in ["manufact", "industrial", "electronic", "semiconductor", "machinery", "automotive", "chemical", "food"]):
+                    out["is_manufacturing"] = True
+
+        self._source_meta_cache[p] = out
+        return out
+
+    @staticmethod
+    def _source_quality(source_path: str) -> int:
+        s = (source_path or "").lower()
+        if "yahoo_" in s:
+            return 4
+        if "dart_" in s and "dart_notes_" not in s:
+            return 4
+        if "dart_notes_" in s:
+            return 3
+        if "market_share_" in s or "valuation_case_" in s or "synergy_case_" in s or "due_diligence_case_" in s:
+            return 3
+        if "news_" in s:
+            return 1
+        return 2
+
+    @staticmethod
+    def _normalize_company_name(name: str) -> str:
+        x = unicodedata.normalize("NFKC", str(name or "")).strip().lower()
+        if not x:
+            return ""
+        x = x.replace("(주)", "").replace("주식회사", "").replace("㈜", "")
+        x = re.sub(r"[^a-z0-9가-힣]+", "", x)
+        return x
+
+    def _company_manufacturing(self, company_name: str) -> bool | None:
+        master = self._company_master_item(company_name)
+        if isinstance(master, dict):
+            v = master.get("is_manufacturing")
+            if isinstance(v, bool):
+                return v
+
+        key = self._normalize_company_name(company_name)
+        if not key:
+            return None
+        if self._company_manufacturing_cache is None:
+            self._company_manufacturing_cache = self._build_company_manufacturing_cache()
+        return self._company_manufacturing_cache.get(key)
+
+    def _company_master_item(self, company_name: str) -> dict[str, Any] | None:
+        idx = self._load_company_master_index()
+        if not idx:
+            return None
+        key = self._normalize_company_name(company_name)
+        if not key:
+            return None
+        item = idx.get(key)
+        return item if isinstance(item, dict) else None
+
+    def _load_company_master_index(self) -> dict[str, dict[str, Any]]:
+        if self._company_master_index is not None:
+            return self._company_master_index
+        self._company_master_index = {}
+        root = Path(__file__).resolve().parents[2]
+        path = root / "data" / "processed" / "company_master.json"
+        if not path.exists():
+            return self._company_master_index
+
+        payload = self._safe_read_json(path)
+        if not isinstance(payload, dict):
+            return self._company_master_index
+
+        alias_idx = payload.get("alias_index")
+        if isinstance(alias_idx, dict):
+            for k, v in alias_idx.items():
+                kk = self._normalize_company_name(str(k))
+                if kk and isinstance(v, dict):
+                    self._company_master_index[kk] = v
+        return self._company_master_index
+
+    def _build_company_manufacturing_cache(self) -> dict[str, bool | None]:
+        root = Path(__file__).resolve().parents[2]
+        raw_dir = root / "data" / "raw"
+        out: dict[str, bool | None] = {}
+        if not raw_dir.exists():
+            return out
+
+        def merge(name: str, val: bool | None) -> None:
+            k = self._normalize_company_name(name)
+            if not k or val is None:
+                return
+            prev = out.get(k)
+            if prev is True:
+                return
+            if val is True:
+                out[k] = True
+                return
+            if prev is None:
+                out[k] = False
+
+        for p in raw_dir.glob("dart_*.json"):
+            payload = self._safe_read_json(p)
+            if not isinstance(payload, dict):
+                continue
+            company = str(payload.get("company") or "")
+            dart = payload.get("dart") if isinstance(payload.get("dart"), dict) else {}
+            ind = str(dart.get("induty_code") or "").strip()
+            val: bool | None = None
+            if ind and ind[:2].isdigit():
+                sec = int(ind[:2])
+                val = 10 <= sec <= 34
+            merge(company, val)
+
+        for p in raw_dir.glob("yahoo_*.json"):
+            payload = self._safe_read_json(p)
+            if not isinstance(payload, dict):
+                continue
+            company = str(payload.get("company") or "")
+            profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else {}
+            industry = str(profile.get("industry") or "").lower()
+            sector = str(profile.get("sector") or "").lower()
+            text = f"{industry} {sector}"
+            val: bool | None = None
+            if text.strip():
+                if any(
+                    k in text
+                    for k in [
+                        "insurance",
+                        "bank",
+                        "financial",
+                        "asset management",
+                        "brokerage",
+                        "construction",
+                        "engineering",
+                        "software",
+                        "internet",
+                        "telecom",
+                        "media",
+                        "retail",
+                        "services",
+                        "transportation",
+                        "utilities",
+                    ]
+                ):
+                    val = False
+                elif any(k in text for k in ["manufact", "industrial", "electronic", "semiconductor", "machinery", "automotive", "chemical", "food"]):
+                    val = True
+            merge(company, val)
+
+        return out
+
+    @staticmethod
+    def _safe_read_json(path: Path) -> dict[str, Any] | None:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    @staticmethod
+    def _sanitize_answer(answer: dict[str, Any], retrieved: list[dict[str, Any]]) -> dict[str, Any]:
+        if not isinstance(answer, dict):
+            return {
+                "template_id": RagPipeline.ENTRY_TEMPLATE_COMPANY_OVERVIEW,
+                "template_name": RagPipeline.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW,
+                "company_name": retrieved[0].get("company", "정보 부족") if retrieved else "정보 부족",
+                "market": retrieved[0].get("market", "정보 부족") if retrieved else "정보 부족",
+                "summary": "정보 부족",
+                "company_overview": "정보 부족",
+                "business_structure": "정보 부족",
+                "revenue_operating_income_5y_trend": "정보 부족",
+                "ebitda": "정보 부족",
+                "market_cap": "정보 부족",
+                "competitors": [],
+                "key_risks": [],
+                "recent_disclosures": [],
+                "highlights": [],
+                "financial_snapshot": {
+                    "market_cap": "정보 부족",
+                    "revenue": "정보 부족",
+                    "operating_income": "정보 부족",
+                    "net_income": "정보 부족",
+                },
+                "risks": [],
+                "sources": [r.get("source", "") for r in retrieved if r.get("source")],
+                "similar_companies": [],
+            }
+
+        def nz(v: Any) -> Any:
+            if v is None:
+                return "정보 부족"
+            if isinstance(v, str):
+                return v.strip() or "정보 부족"
+            return v
+
+        out = dict(answer)
+        out["template_id"] = str(out.get("template_id") or RagPipeline.ENTRY_TEMPLATE_COMPANY_OVERVIEW).strip() or RagPipeline.ENTRY_TEMPLATE_COMPANY_OVERVIEW
+        out["template_name"] = str(out.get("template_name") or RagPipeline.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW).strip() or RagPipeline.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW
+        out["company_name"] = nz(out.get("company_name")) if out.get("company_name") is not None else (
+            retrieved[0].get("company", "정보 부족") if retrieved else "정보 부족"
+        )
+        out["market"] = nz(out.get("market")) if out.get("market") is not None else (
+            retrieved[0].get("market", "정보 부족") if retrieved else "정보 부족"
+        )
+        out["summary"] = nz(out.get("summary")) if out.get("summary") is not None else "정보 부족"
+        out["company_overview"] = nz(out.get("company_overview")) if out.get("company_overview") is not None else out["summary"]
+        out["business_structure"] = nz(out.get("business_structure")) if out.get("business_structure") is not None else "정보 부족"
+        out["revenue_operating_income_5y_trend"] = (
+            nz(out.get("revenue_operating_income_5y_trend"))
+            if out.get("revenue_operating_income_5y_trend") is not None
+            else "정보 부족"
+        )
+        out["ebitda"] = nz(out.get("ebitda")) if out.get("ebitda") is not None else "정보 부족"
+        out["market_cap"] = nz(out.get("market_cap")) if out.get("market_cap") is not None else "정보 부족"
+
+        highlights = out.get("highlights")
+        if isinstance(highlights, list):
+            out["highlights"] = [nz(x) for x in highlights if str(x).strip()]
+        else:
+            out["highlights"] = []
+
+        risks = out.get("risks")
+        if isinstance(risks, list):
+            out["risks"] = [nz(x) for x in risks if str(x).strip()]
+        else:
+            out["risks"] = []
+        key_risks = out.get("key_risks")
+        if isinstance(key_risks, list):
+            out["key_risks"] = [nz(x) for x in key_risks if str(x).strip()]
+        else:
+            out["key_risks"] = list(out["risks"])
+        if not out["risks"] and out["key_risks"]:
+            out["risks"] = list(out["key_risks"])
+
+        comps = out.get("competitors")
+        if isinstance(comps, list):
+            out["competitors"] = [str(x).strip() for x in comps if str(x).strip()]
+        else:
+            out["competitors"] = []
+        recents = out.get("recent_disclosures")
+        if isinstance(recents, list):
+            out["recent_disclosures"] = [str(x).strip() for x in recents if str(x).strip()]
+        else:
+            out["recent_disclosures"] = []
+
+        srcs = out.get("sources")
+        if isinstance(srcs, list):
+            merged = [str(x).strip() for x in srcs if str(x).strip()]
+        else:
+            merged = []
+        merged.extend([r.get("source", "").strip() for r in retrieved if r.get("source")])
+        dedup: list[str] = []
+        seen: set[str] = set()
+        for s in merged:
+            if s and s not in seen:
+                seen.add(s)
+                dedup.append(s)
+        out["sources"] = dedup
+
+        snap = out.get("financial_snapshot")
+        if not isinstance(snap, dict):
+            snap = {}
+        out["financial_snapshot"] = {
+            "market_cap": nz(snap.get("market_cap", "정보 부족")),
+            "revenue": nz(snap.get("revenue", "정보 부족")),
+            "operating_income": nz(snap.get("operating_income", "정보 부족")),
+            "net_income": nz(snap.get("net_income", "정보 부족")),
+        }
+        if out["market_cap"] == "정보 부족":
+            out["market_cap"] = out["financial_snapshot"]["market_cap"]
+
+        sims = out.get("similar_companies")
+        if isinstance(sims, list):
+            out["similar_companies"] = [str(x).strip() for x in sims if str(x).strip()]
+        else:
+            out["similar_companies"] = []
+        if not out["competitors"] and out["similar_companies"]:
+            out["competitors"] = list(out["similar_companies"][:5])
+
+        return out
+
+    @staticmethod
+    def _is_missing(v: Any) -> bool:
+        if v is None:
+            return True
+        if isinstance(v, str):
+            s = v.strip()
+            return (not s) or (s == "정보 부족")
+        return False
+
+    @staticmethod
+    def _number_text(v: Any) -> str:
+        if v is None:
+            return "정보 부족"
+        if isinstance(v, (int, float)):
+            return f"{int(v):,}" if float(v).is_integer() else f"{float(v):,.2f}"
+        s = str(v).strip()
+        return s or "정보 부족"
+
+    @staticmethod
+    def _to_float(v: Any) -> float | None:
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, str):
+            s = v.strip().replace(",", "")
+            if not s:
+                return None
+            try:
+                return float(s)
+            except ValueError:
+                return None
+        return None
+
+    def _resolve_existing_json_path(self, source: str) -> Path | None:
+        s = str(source or "").strip()
+        if not s:
+            return None
+        p = Path(s)
+        if not p.is_absolute():
+            root = Path(__file__).resolve().parents[2]
+            p = (root / p).resolve()
+        if not p.exists() or not p.is_file():
+            return None
+        return p
+
+    def _backfill_answer_from_evidence(
+        self,
+        answer: dict[str, Any],
+        retrieved: list[dict[str, Any]],
+        company_hint: str | None,
+        question: str,
+    ) -> dict[str, Any]:
+        out = dict(answer) if isinstance(answer, dict) else {}
+        snap = out.get("financial_snapshot")
+        if not isinstance(snap, dict):
+            snap = {}
+        out["financial_snapshot"] = snap
+
+        source_paths: list[Path] = []
+        seen: set[str] = set()
+        for row in retrieved:
+            p = self._resolve_existing_json_path(str(row.get("source") or ""))
+            if p is None:
+                continue
+            sp = str(p)
+            if sp in seen:
+                continue
+            seen.add(sp)
+            source_paths.append(p)
+        for s in out.get("sources") or []:
+            p = self._resolve_existing_json_path(str(s))
+            if p is None:
+                continue
+            sp = str(p)
+            if sp in seen:
+                continue
+            seen.add(sp)
+            source_paths.append(p)
+
+        # 회사 기준으로 5Y/Yahoo 원본을 추가 탐색해 누락을 줄인다.
+        aliases = self._company_alias_candidates(company_hint or out.get("company_name") or "")
+        if aliases:
+            raw_dir = Path(__file__).resolve().parents[2] / "data" / "raw"
+            for p in sorted(raw_dir.glob("financials_5y_*.json")) + sorted(raw_dir.glob("yahoo_*.json")):
+                payload = self._safe_read_json(p)
+                if not isinstance(payload, dict):
+                    continue
+                cn = self._normalize_company_name(str(payload.get("company") or ""))
+                tk = self._normalize_company_name(str(payload.get("ticker") or ""))
+                if not any((a in cn) or (cn and cn in a) or (a in tk) for a in aliases):
+                    continue
+                sp = str(p.resolve())
+                if sp in seen:
+                    continue
+                seen.add(sp)
+                source_paths.append(p.resolve())
+
+        market_cap: float | None = None
+        latest_year: int | None = None
+        latest_revenue: float | None = None
+        latest_op_income: float | None = None
+        latest_net_income: float | None = None
+        rev_points: list[tuple[int, float]] = []
+        op_points: list[tuple[int, float]] = []
+        latest_ebitda_margin: float | None = None
+
+        for p in source_paths:
+            payload = self._safe_read_json(p)
+            if not isinstance(payload, dict):
+                continue
+            profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else {}
+            mc = self._to_float(profile.get("market_cap"))
+            if mc is not None and market_cap is None:
+                market_cap = mc
+
+            f5 = payload.get("financials_5y") if isinstance(payload.get("financials_5y"), dict) else {}
+            years = f5.get("years") if isinstance(f5.get("years"), list) else []
+            for y in years:
+                if not isinstance(y, dict):
+                    continue
+                yv_raw = y.get("year")
+                yv = int(yv_raw) if isinstance(yv_raw, int) else None
+                if yv is None and isinstance(yv_raw, str) and yv_raw.isdigit():
+                    yv = int(yv_raw)
+                if yv is None:
+                    continue
+                rev = self._to_float(y.get("revenue"))
+                opi = self._to_float(y.get("operating_income"))
+                ni = self._to_float(y.get("net_income"))
+                mgn = self._to_float(y.get("ebitda_margin_pct"))
+                if rev is not None:
+                    rev_points.append((yv, rev))
+                if opi is not None:
+                    op_points.append((yv, opi))
+                if latest_year is None or yv > latest_year:
+                    latest_year = yv
+                    latest_revenue = rev
+                    latest_op_income = opi
+                    latest_net_income = ni
+                    latest_ebitda_margin = mgn
+
+        if self._is_missing(snap.get("market_cap")) and market_cap is not None:
+            snap["market_cap"] = self._number_text(market_cap)
+        if self._is_missing(out.get("market_cap")) and market_cap is not None:
+            out["market_cap"] = self._number_text(market_cap)
+        if self._is_missing(snap.get("revenue")) and latest_revenue is not None:
+            snap["revenue"] = self._number_text(latest_revenue)
+        if self._is_missing(snap.get("operating_income")) and latest_op_income is not None:
+            snap["operating_income"] = self._number_text(latest_op_income)
+        if self._is_missing(snap.get("net_income")) and latest_net_income is not None:
+            snap["net_income"] = self._number_text(latest_net_income)
+
+        need_summary = self._is_missing(out.get("summary"))
+        if need_summary and latest_year is not None:
+            name = str(out.get("company_name") or company_hint or "해당 기업")
+            cagr_text = "정보 부족"
+            dedup_rev: dict[int, float] = {}
+            for yv, rv in rev_points:
+                dedup_rev[yv] = rv
+            ordered = sorted(dedup_rev.items())
+            if len(ordered) >= 2:
+                y0, r0 = ordered[0]
+                y1, r1 = ordered[-1]
+                if r0 > 0 and y1 > y0:
+                    years_diff = y1 - y0
+                    cagr = ((r1 / r0) ** (1.0 / years_diff) - 1.0) * 100.0
+                    cagr_text = f"{cagr:.2f}%"
+            out["summary"] = (
+                f"{name}의 최신 연도({latest_year}) 기준 매출/영업이익/순이익 데이터를 확인했습니다. "
+                f"매출 CAGR(가용연도 기준)은 {cagr_text}이며 EBITDA 마진은 "
+                f"{f'{latest_ebitda_margin:.2f}%' if latest_ebitda_margin is not None else '정보 부족'}입니다."
+            )
+        if self._is_missing(out.get("company_overview")):
+            out["company_overview"] = out.get("summary") or "정보 부족"
+
+        highs = out.get("highlights")
+        if (not isinstance(highs, list) or not highs) and latest_year is not None:
+            points: list[str] = []
+            if latest_revenue is not None:
+                points.append(f"{latest_year} 매출 {self._number_text(latest_revenue)}")
+            if latest_op_income is not None:
+                points.append(f"{latest_year} 영업이익 {self._number_text(latest_op_income)}")
+            if latest_net_income is not None:
+                points.append(f"{latest_year} 순이익 {self._number_text(latest_net_income)}")
+            if latest_ebitda_margin is not None:
+                points.append(f"EBITDA 마진 {latest_ebitda_margin:.2f}%")
+            out["highlights"] = points[:4]
+        if self._is_missing(out.get("ebitda")):
+            if latest_ebitda_margin is not None and latest_year is not None:
+                out["ebitda"] = f"{latest_year} EBITDA 마진 {latest_ebitda_margin:.2f}%"
+            else:
+                out["ebitda"] = "정보 부족"
+
+        if self._is_missing(out.get("revenue_operating_income_5y_trend")):
+            rev_map: dict[int, float] = {}
+            for yv, rv in rev_points:
+                rev_map[yv] = rv
+            op_map: dict[int, float] = {}
+            for yv, ov in op_points:
+                op_map[yv] = ov
+            rev_ordered = sorted(rev_map.items())
+            op_ordered = sorted(op_map.items())
+            if len(rev_ordered) >= 2:
+                y0, r0 = rev_ordered[0]
+                y1, r1 = rev_ordered[-1]
+                rev_part = f"매출 {self._number_text(r0)} -> {self._number_text(r1)}"
+                if r0 > 0 and y1 > y0:
+                    cagr = ((r1 / r0) ** (1.0 / (y1 - y0)) - 1.0) * 100.0
+                    rev_part += f" (CAGR {cagr:.2f}%)"
+                op_part = "영업이익 정보 부족"
+                if len(op_ordered) >= 2:
+                    oy0, o0 = op_ordered[0]
+                    oy1, o1 = op_ordered[-1]
+                    op_part = f"영업이익 {self._number_text(o0)} -> {self._number_text(o1)} ({oy0}~{oy1})"
+                out["revenue_operating_income_5y_trend"] = f"{y0}~{y1} {rev_part}, {op_part}"
+            else:
+                out["revenue_operating_income_5y_trend"] = "정보 부족"
+
+        if self._is_missing(out.get("business_structure")):
+            out["business_structure"] = "사업부 구조 세부 비중은 현재 컨텍스트에서 정보 부족"
+
+        if not isinstance(out.get("competitors"), list) or not out.get("competitors"):
+            sims = out.get("similar_companies") if isinstance(out.get("similar_companies"), list) else []
+            out["competitors"] = [str(x).strip() for x in sims if str(x).strip()][:5]
+
+        if not isinstance(out.get("key_risks"), list) or not out.get("key_risks"):
+            rs = out.get("risks") if isinstance(out.get("risks"), list) else []
+            out["key_risks"] = [str(x).strip() for x in rs if str(x).strip()][:5]
+
+        if not isinstance(out.get("recent_disclosures"), list) or not out.get("recent_disclosures"):
+            recents: list[str] = []
+            for p in source_paths:
+                pl = self._safe_read_json(p)
+                if not isinstance(pl, dict):
+                    continue
+                title = str(pl.get("title") or "").strip()
+                published_at = str(pl.get("published_at") or "").strip()
+                src = str(pl.get("source") or "").strip()
+                if title:
+                    row = f"{published_at} {title}".strip()
+                elif src:
+                    row = src
+                else:
+                    row = p.name
+                recents.append(row)
+                if len(recents) >= 5:
+                    break
+            out["recent_disclosures"] = recents
+
+        # 5개년 질문인데 핵심 숫자가 비어있으면 최소 안내문으로 대체한다.
+        q = (question or "").strip().lower()
+        if ("5개년" in q or "최근 5년" in q) and all(self._is_missing(snap.get(k)) for k in ["revenue", "operating_income", "net_income"]):
+            out["summary"] = (
+                "해당 기업의 5개년 재무 원천은 존재하지만 현재 컨텍스트에서 핵심 계정 추출이 누락되었습니다. "
+                "관리자 페이지에서 '5개년 재무 팩트 생성 -> 증분 인덱스 실행 -> 메모리 인덱스 새로고침'을 다시 실행해 주세요."
+            )
+        return out
+
+    @staticmethod
+    def _source_family(path: str) -> str:
+        p = (path or "").lower()
+        if "valuation_case_" in p:
+            return "valuation_case"
+        if "synergy_case_" in p:
+            return "synergy_case"
+        if "due_diligence_case_" in p:
+            return "due_diligence_case"
+        if "strategic_case_" in p:
+            return "strategic_case"
+        if "yahoo_" in p:
+            return "yahoo"
+        if "financials_5y_" in p:
+            return "financials_5y"
+        if "dart_financials_" in p:
+            return "dart_financials"
+        if "customer_dependency_external_" in p:
+            return "customer_dependency_external"
+        if "customer_dependency_llm_" in p:
+            return "customer_dependency_llm"
+        if "customer_dependency_" in p:
+            return "customer_dependency"
+        if "dart_notes_" in p:
+            return "dart_notes"
+        if "dart_" in p:
+            return "dart"
+        if "news_" in p:
+            return "news"
+        if "patent_" in p:
+            return "patent"
+        if "market_share_" in p:
+            return "market_share"
+        if "esg_" in p:
+            return "esg"
+        if "valuation_" in p or "multiple_" in p:
+            return "valuation"
+        if "mna_" in p:
+            return "mna"
+        if "regulation_" in p or "law_" in p:
+            return "regulation"
+        if "tam_" in p or "sam_" in p or "som_" in p:
+            return "tam_sam_som"
+        if "global_" in p or "overseas_" in p:
+            return "global_players"
+        if "techtrend_" in p:
+            return "techtrend"
+        if "commodity_" in p:
+            return "commodity"
+        if "macro_" in p:
+            return "macro"
+        if "fx_" in p:
+            return "fx"
+        if "privacy_" in p or "security_" in p:
+            return "security"
+        if "tax_" in p:
+            return "tax"
+        if "supply_chain_" in p:
+            return "supply_chain"
+        if "pmi_fail_" in p:
+            return "pmi_fail"
+        return "other"
+
+    def _company_source_coverage(self, company_name: str) -> set[str]:
+        q = (company_name or "").strip().lower()
+        coverage: set[str] = set()
+        if not q:
+            return coverage
+        for row in self._chunks:
+            row_company = str(row.get("company") or "").strip().lower()
+            text = str(row.get("text") or "").strip().lower()
+            if not row_company:
+                if q not in text:
+                    continue
+            if q not in row_company and row_company not in q and q not in text:
+                continue
+            fam = self._source_family(str(row.get("source") or ""))
+            coverage.add(fam)
+        return coverage
+
+    def _industry_source_coverage(self, industry_name: str) -> set[str]:
+        q = (industry_name or "").strip().lower()
+        coverage: set[str] = set()
+        if not q:
+            return coverage
+        for row in self._chunks:
+            text = str(row.get("text") or "").lower()
+            company = str(row.get("company") or "").lower()
+            if q not in text and q not in company:
+                continue
+            coverage.add(self._source_family(str(row.get("source") or "")))
+        return coverage
+
+    @staticmethod
+    def _target_question_readiness(question_id: int, coverage: set[str]) -> str:
+        has_yahoo = "yahoo" in coverage
+        has_dart = "dart" in coverage
+        has_fin5y = "financials_5y" in coverage or "dart_financials" in coverage
+        has_customer_dep = (
+            "customer_dependency" in coverage
+            or "customer_dependency_external" in coverage
+            or "customer_dependency_llm" in coverage
+        )
+        has_news = "news" in coverage
+        has_patent = "patent" in coverage
+        has_mshare = "market_share" in coverage
+        has_esg = "esg" in coverage
+
+        if question_id == 1:
+            return "가능" if (has_fin5y or has_yahoo) else ("부분" if has_dart else "불가")
+        if question_id == 2:
+            return "가능" if has_customer_dep else ("부분" if (has_dart or has_news) else "불가")
+        if question_id == 3:
+            return "부분" if (has_dart or has_yahoo) else "불가"
+        if question_id == 4:
+            return "부분" if has_dart else "불가"
+        if question_id == 5:
+            return "부분" if (has_yahoo or has_dart) else "불가"
+        if question_id == 6:
+            return "부분" if has_dart else "불가"
+        if question_id == 7:
+            return "가능" if has_mshare else "불가"
+        if question_id == 8:
+            return "가능" if has_patent else "불가"
+        if question_id == 9:
+            return "부분" if (has_dart or has_news) else "불가"
+        if question_id == 10:
+            return "가능" if has_esg else ("부분" if (has_dart or has_news) else "불가")
+        return "불가"
+
+    @staticmethod
+    def _industry_question_readiness(question_id: int, coverage: set[str]) -> str:
+        has_yahoo = "yahoo" in coverage
+        has_dart = "dart" in coverage
+        has_news = "news" in coverage
+        has_valuation = "valuation" in coverage
+        has_mna = "mna" in coverage
+        has_regulation = "regulation" in coverage
+        has_tam = "tam_sam_som" in coverage
+        has_global = "global_players" in coverage
+        has_techtrend = "techtrend" in coverage
+        has_commodity = "commodity" in coverage
+        has_macro = "macro" in coverage
+
+        if question_id == 11:
+            return "부분" if (has_news or has_yahoo or has_dart) else "불가"
+        if question_id == 12:
+            return "부분" if (has_news or has_dart) else "불가"
+        if question_id == 13:
+            return "가능" if has_valuation else "불가"
+        if question_id == 14:
+            return "가능" if has_mna else ("부분" if has_news else "불가")
+        if question_id == 15:
+            return "가능" if has_regulation else ("부분" if (has_news or has_dart) else "불가")
+        if question_id == 16:
+            return "가능" if has_tam else "불가"
+        if question_id == 17:
+            return "가능" if has_global else ("부분" if has_news else "불가")
+        if question_id == 18:
+            return "가능" if has_techtrend else ("부분" if has_news else "불가")
+        if question_id == 19:
+            return "가능" if has_commodity else ("부분" if (has_yahoo or has_dart) else "불가")
+        if question_id == 20:
+            return "가능" if has_macro else ("부분" if (has_yahoo or has_dart) else "불가")
+        return "불가"
+
+    @staticmethod
+    def _valuation_question_readiness(question_id: int, coverage: set[str]) -> str:
+        has_yahoo = "yahoo" in coverage
+        has_dart = "dart" in coverage
+        has_dart_notes = "dart_notes" in coverage
+        has_valuation_case = "valuation_case" in coverage
+        has_valuation = "valuation" in coverage
+        has_mna = "mna" in coverage
+        has_market_share = "market_share" in coverage
+        has_patent = "patent" in coverage
+        has_esg = "esg" in coverage
+        has_fx = "fx" in coverage
+        has_macro = "macro" in coverage
+
+        if question_id == 21:
+            return "가능" if (has_valuation_case or has_valuation) else ("부분" if has_yahoo else "불가")
+        if question_id == 22:
+            return "가능" if has_mna else "불가"
+        if question_id == 23:
+            return "가능" if has_valuation_case else ("부분" if (has_yahoo or has_dart) else "불가")
+        if question_id == 24:
+            return "가능" if has_valuation_case else ("부분" if has_yahoo else "불가")
+        if question_id == 25:
+            return "가능" if has_valuation_case else "불가"
+        if question_id == 26:
+            return "가능" if has_valuation_case else ("부분" if (has_market_share or has_patent or has_esg) else "불가")
+        if question_id == 27:
+            return "가능" if has_valuation_case else ("부분" if (has_valuation or has_yahoo) else "불가")
+        if question_id == 28:
+            return "가능" if (has_fx or has_macro or has_valuation_case) else ("부분" if has_yahoo else "불가")
+        if question_id == 29:
+            return "가능" if has_valuation_case else ("부분" if (has_yahoo or has_dart_notes) else "불가")
+        if question_id == 30:
+            return "가능" if (has_dart_notes or has_valuation_case) else ("부분" if has_dart else "불가")
+        return "불가"
+
+    @staticmethod
+    def _synergy_question_readiness(question_id: int, coverage: set[str]) -> str:
+        has_synergy_case = "synergy_case" in coverage
+        has_dart_notes = "dart_notes" in coverage
+        has_news = "news" in coverage
+        has_market_share = "market_share" in coverage
+        has_patent = "patent" in coverage
+        has_esg = "esg" in coverage
+        has_mna = "mna" in coverage
+
+        if question_id in {31, 37}:
+            if has_synergy_case or has_market_share or has_patent:
+                return "가능"
+            return "부분" if (has_dart_notes or has_news) else "불가"
+        if question_id in {32, 34, 35, 36, 39}:
+            return "가능" if has_synergy_case else ("부분" if (has_dart_notes or has_news) else "불가")
+        if question_id == 33:
+            return "가능" if has_synergy_case else ("부분" if has_dart_notes else "불가")
+        if question_id == 38:
+            return "가능" if (has_synergy_case or has_esg) else ("부분" if has_news else "불가")
+        if question_id == 40:
+            return "가능" if has_synergy_case else ("부분" if (has_dart_notes or has_mna) else "불가")
+        return "불가"
+
+    @staticmethod
+    def _due_diligence_question_readiness(question_id: int, coverage: set[str]) -> str:
+        has_dd = "due_diligence_case" in coverage
+        has_dart = "dart" in coverage
+        has_dart_notes = "dart_notes" in coverage
+        has_news = "news" in coverage
+        has_tax = "tax" in coverage
+        has_security = "security" in coverage
+        has_supply = "supply_chain" in coverage
+        has_pmi_fail = "pmi_fail" in coverage
+        has_mna = "mna" in coverage
+        has_esg = "esg" in coverage
+        has_synergy_case = "synergy_case" in coverage
+
+        if question_id in {41, 42, 43, 44, 46, 47}:
+            return "가능" if has_dd else ("부분" if (has_dart_notes or has_dart) else "불가")
+        if question_id == 45:
+            return "가능" if (has_dd or has_tax) else ("부분" if has_dart else "불가")
+        if question_id == 48:
+            return "가능" if (has_dd or has_security) else ("부분" if (has_news or has_esg) else "불가")
+        if question_id == 49:
+            return "가능" if (has_dd or has_supply) else ("부분" if (has_news or has_synergy_case) else "불가")
+        if question_id == 50:
+            return "가능" if (has_dd or has_pmi_fail) else ("부분" if (has_mna or has_news) else "불가")
+        return "불가"
+
+    @staticmethod
+    def _strategic_question_readiness(question_id: int, coverage: set[str]) -> str:
+        has_strategic = "strategic_case" in coverage
+        has_valuation_case = "valuation_case" in coverage
+        has_synergy_case = "synergy_case" in coverage
+        has_dd = "due_diligence_case" in coverage
+        has_mna = "mna" in coverage
+        has_news = "news" in coverage
+        has_dart = "dart" in coverage
+        has_dart_notes = "dart_notes" in coverage
+
+        if question_id in {51, 52, 54, 55, 60}:
+            if has_strategic:
+                return "가능"
+            if has_valuation_case or has_synergy_case or has_dd:
+                return "부분"
+            return "불가"
+        if question_id == 53:
+            return "가능" if (has_strategic or has_mna) else ("부분" if (has_news or has_valuation_case) else "불가")
+        if question_id in {56, 57, 58, 59}:
+            if has_strategic:
+                return "가능"
+            if has_mna or has_dart_notes or has_dart:
+                return "부분"
+            return "불가"
+        return "불가"
+
+    @staticmethod
+    def _target_unavailable_message(question_id: int) -> str:
+        missing_reason: dict[int, str] = {
+            2: "고객사별 매출 의존도는 공시 본문 테이블 정밀 파싱이 필요합니다.",
+            7: "시장 점유율 비교는 외부 시장점유율 데이터셋이 필요합니다.",
+            8: "특허/기술 요약은 특허 DB(예: KIPRIS) 연동 데이터가 필요합니다.",
+            10: "ESG 전용 데이터 소스가 아직 인덱스에 없습니다.",
+        }
+        return "현재 데이터로 신뢰 가능한 답변을 만들기 어렵습니다. " + missing_reason.get(
+            question_id, "관련 원천 데이터가 부족합니다."
+        )
+
+    @staticmethod
+    def _industry_unavailable_message(question_id: int) -> str:
+        missing_reason: dict[int, str] = {
+            13: "산업 멀티플 원천 데이터(예: P/E, EV/EBITDA 집계)가 필요합니다.",
+            16: "TAM/SAM/SOM 산정용 시장규모 데이터와 계산 모델이 필요합니다.",
+            19: "원자재 가격 시계열과 원가구조 매핑 데이터가 필요합니다.",
+        }
+        return "현재 데이터로 신뢰 가능한 답변을 만들기 어렵습니다. " + missing_reason.get(
+            question_id, "해당 질문에 필요한 산업 전용 데이터셋이 부족합니다."
+        )
+
+    @staticmethod
+    def _valuation_unavailable_message(question_id: int) -> str:
+        missing_reason: dict[int, str] = {
+            22: "유사 거래(M&A comps) 데이터셋이 필요합니다.",
+            25: "인수 구조/현금흐름 가정이 포함된 밸류에이션 케이스 데이터가 필요합니다.",
+            29: "LBO 레버리지 가정(금리/상환/DSCR) 데이터가 필요합니다.",
+        }
+        return "현재 데이터로 신뢰 가능한 답변을 만들기 어렵습니다. " + missing_reason.get(
+            question_id, "해당 질문에 필요한 밸류에이션 데이터셋이 부족합니다."
+        )
+
+    @staticmethod
+    def _synergy_unavailable_message(question_id: int) -> str:
+        missing_reason: dict[int, str] = {
+            35: "IT 통합비 산정용 시스템 자산/전환비 데이터가 필요합니다.",
+            36: "PMI 일정/통합 난이도 기준 데이터가 필요합니다.",
+            40: "법인/법무 구조(계약/소송/법인목록) 정형 데이터가 필요합니다.",
+        }
+        return "현재 데이터로 신뢰 가능한 답변을 만들기 어렵습니다. " + missing_reason.get(
+            question_id, "해당 질문에 필요한 시너지 데이터셋이 부족합니다."
+        )
+
+    @staticmethod
+    def _due_diligence_unavailable_message(question_id: int) -> str:
+        missing_reason: dict[int, str] = {
+            47: "주요 계약 원문과 Change of Control 조항 데이터가 필요합니다.",
+            48: "개인정보/보안 감사 및 사고 이력 데이터가 필요합니다.",
+            50: "PMI 실패 사례 데이터셋(사례/원인/교훈)이 필요합니다.",
+        }
+        return "현재 데이터로 신뢰 가능한 답변을 만들기 어렵습니다. " + missing_reason.get(
+            question_id, "해당 질문에 필요한 실사 데이터셋이 부족합니다."
+        )
+
+    @staticmethod
+    def _strategic_unavailable_message(question_id: int) -> str:
+        missing_reason: dict[int, str] = {
+            52: "포트폴리오 시너지 매핑(제품/고객/채널) 데이터가 필요합니다.",
+            57: "거래 구조(성과지표/정산식) 기반의 Earn-out 사례 데이터가 필요합니다.",
+            60: "자본구조/세무/지배구조를 포함한 딜 구조 케이스 데이터가 필요합니다.",
+        }
+        return "현재 데이터로 신뢰 가능한 답변을 만들기 어렵습니다. " + missing_reason.get(
+            question_id, "해당 질문에 필요한 전략 의사결정 데이터셋이 부족합니다."
+        )
+
+    @staticmethod
+    def _dedup_sources(retrieved: list[dict[str, Any]]) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for row in retrieved:
+            src = str(row.get("source") or "").strip()
+            if not src or src in seen:
+                continue
+            seen.add(src)
+            out.append(src)
+        return out[:8]
+
+    def _retrieve_for_company_query(
+        self,
+        company_name: str,
+        question: str,
+        top_k: int,
+        allow_fallback: bool = True,
+    ) -> list[dict[str, Any]]:
+        candidates = self.retrieve(question, top_k=max(top_k * 3, 12))
+        c_raw = (company_name or "").strip().lower()
+        c_norm = self._normalize_company_name(company_name)
+        if not c_raw and not c_norm:
+            return candidates[:top_k]
+
+        matched = [
+            row
+            for row in candidates
+            if (
+                (c_raw and (c_raw in str(row.get("company") or "").strip().lower()))
+                or (c_raw and (str(row.get("company") or "").strip().lower() in c_raw))
+                or (c_raw and (c_raw in str(row.get("text") or "").strip().lower()))
+                or (
+                    c_norm
+                    and (
+                        c_norm in self._normalize_company_name(str(row.get("company") or ""))
+                        or self._normalize_company_name(str(row.get("company") or "")) in c_norm
+                        or c_norm in self._normalize_company_name(str(row.get("text") or ""))
+                    )
+                )
+            )
+        ]
+        if len(matched) >= min(top_k, 4):
+            return matched[:top_k]
+
+        if not allow_fallback:
+            direct = self._retrieve_company_direct(company_name, top_k=top_k)
+            if direct:
+                return direct
+            return matched[:top_k]
+
+        # 회사명이 잘 매칭되지 않으면, 매칭 결과를 우선하고 부족분은 일반 검색 결과로 보완한다.
+        merged: list[dict[str, Any]] = list(matched)
+        existing = {id(x) for x in merged}
+        for row in candidates:
+            if id(row) in existing:
+                continue
+            merged.append(row)
+            if len(merged) >= top_k:
+                break
+        return merged[:top_k]
+
+    def _retrieve_company_direct(self, company_name: str, top_k: int) -> list[dict[str, Any]]:
+        cands = self._company_alias_candidates(company_name)
+        if not cands:
+            return []
+
+        rows: list[dict[str, Any]] = []
+        for row in self._chunks:
+            rc = self._normalize_company_name(str(row.get("company") or ""))
+            rt = self._normalize_company_name(str(row.get("text") or ""))
+            if not any((c in rc) or (rc and rc in c) or (c in rt) for c in cands):
+                continue
+            src = str(row.get("source") or "")
+            rows.append(
+                {
+                    "score": 0.0,
+                    "company": row.get("company"),
+                    "market": row.get("market"),
+                    "source": src,
+                    "text": str(row.get("text") or "")[:600],
+                }
+            )
+
+        if not rows:
+            return []
+        rows.sort(key=lambda x: self._source_quality(str(x.get("source") or "")), reverse=True)
+        return rows[:top_k]
+
+    def _extract_company_from_query(self, question: str) -> str | None:
+        idx = self._load_company_master_index()
+        if not idx:
+            return None
+        nq = self._normalize_company_name(question)
+        if not nq:
+            return None
+
+        best_key = ""
+        best_item: dict[str, Any] | None = None
+        for key, item in idx.items():
+            if len(key) < 3:
+                continue
+            if key in nq and len(key) > len(best_key):
+                best_key = key
+                if isinstance(item, dict):
+                    best_item = item
+        if not best_item:
+            return None
+        name = str(best_item.get("canonical_name") or "").strip()
+        return name or None
+
+    def _company_alias_candidates(self, company_name: str) -> set[str]:
+        out: set[str] = set()
+        n = self._normalize_company_name(company_name)
+        if n:
+            out.add(n)
+        item = self._company_master_item(company_name)
+        if isinstance(item, dict):
+            for a in item.get("aliases") or []:
+                na = self._normalize_company_name(str(a))
+                if na:
+                    out.add(na)
+            for t in item.get("tickers") or []:
+                nt = self._normalize_company_name(str(t))
+                if nt:
+                    out.add(nt)
+        return out
+
+    def _retrieve_for_industry_query(self, industry_name: str, question: str, top_k: int) -> list[dict[str, Any]]:
+        candidates = self.retrieve(question, top_k=max(top_k * 3, 15))
+        q = (industry_name or "").strip().lower()
+        if not q:
+            return candidates[:top_k]
+
+        matched: list[dict[str, Any]] = []
+        for row in candidates:
+            text = str(row.get("text") or "").lower()
+            company = str(row.get("company") or "").lower()
+            if q in text or q in company:
+                matched.append(row)
+
+        if len(matched) >= min(top_k, 4):
+            return matched[:top_k]
+
+        merged: list[dict[str, Any]] = list(matched)
+        existing = {id(x) for x in merged}
+        for row in candidates:
+            if id(row) in existing:
+                continue
+            merged.append(row)
+            if len(merged) >= top_k:
+                break
+        return merged[:top_k]
+
+    def _answer_target_question(
+        self,
+        company_name: str,
+        question: str,
+        readiness: str,
+        retrieved: list[dict[str, Any]],
+    ) -> str:
+        if not retrieved:
+            return "근거 문서가 부족해 답변을 만들 수 없습니다."
+
+        context = "\n\n".join(
+            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
+            for c in retrieved
+        )
+        limitation = (
+            "현재 데이터가 부분 수준이므로 확정적 표현을 피하고, 부족한 항목을 함께 명시해라."
+            if readiness == "부분"
+            else "근거가 있는 범위에서만 답하고 추정은 하지 마라."
+        )
+        prompt = f"""
+너는 한국 상장사 타겟 실사 보조 분석가다.
+아래 컨텍스트만 사용해서 답해라. 모르면 '정보 부족'이라고 써라.
+{limitation}
+출력은 반드시 JSON 객체 하나만 출력한다.
+
+JSON 스키마:
+{{
+  "answer": "한국어 3~6문장. 숫자는 가능한 경우만 포함. 마지막 문장에 데이터 한계를 한 문장으로 명시."
+}}
+
+기업명: {company_name}
+질문: {question}
+
+컨텍스트:
+{context}
+""".strip()
+        raw = self.client.generate_json(settings.ollama_chat_model, prompt)
+        if isinstance(raw, dict):
+            text = str(raw.get("answer") or raw.get("raw") or "").strip()
+            if text:
+                return text
+        return "정보 부족: 현재 인덱스 근거만으로는 질문에 대한 신뢰 가능한 답변을 만들기 어렵습니다."
+
+    def _answer_industry_question(
+        self,
+        industry_name: str,
+        question: str,
+        readiness: str,
+        retrieved: list[dict[str, Any]],
+    ) -> str:
+        if not retrieved:
+            return "근거 문서가 부족해 답변을 만들 수 없습니다."
+
+        context = "\n\n".join(
+            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
+            for c in retrieved
+        )
+        limitation = (
+            "현재 데이터가 부분 수준이므로 확정 수치 단정은 피하고, 추정치는 보수적으로 표현해라."
+            if readiness == "부분"
+            else "근거가 있는 범위에서만 답하고 추정은 하지 마라."
+        )
+        prompt = f"""
+너는 한국 산업 분석 어시스턴트다.
+아래 컨텍스트만 사용해서 답해라. 모르면 '정보 부족'이라고 써라.
+{limitation}
+출력은 반드시 JSON 객체 하나만 출력한다.
+
+JSON 스키마:
+{{
+  "answer": "한국어 3~6문장. 가능한 경우만 숫자를 제시. 마지막 문장에 데이터 한계를 1문장으로 명시."
+}}
+
+산업명: {industry_name}
+질문: {question}
+
+컨텍스트:
+{context}
+""".strip()
+        raw = self.client.generate_json(settings.ollama_chat_model, prompt)
+        if isinstance(raw, dict):
+            text = str(raw.get("answer") or raw.get("raw") or "").strip()
+            if text:
+                return text
+        return "정보 부족: 현재 인덱스 근거만으로는 질문에 대한 신뢰 가능한 답변을 만들기 어렵습니다."
+
+    def _answer_valuation_question(
+        self,
+        company_name: str,
+        question: str,
+        readiness: str,
+        retrieved: list[dict[str, Any]],
+    ) -> str:
+        if not retrieved:
+            return "근거 문서가 부족해 답변을 만들 수 없습니다."
+
+        context = "\n\n".join(
+            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
+            for c in retrieved
+        )
+        limitation = (
+            "현재 데이터가 부분 수준이므로 숫자는 범위로 제시하고 가정을 명시해라."
+            if readiness == "부분"
+            else "근거가 있는 범위에서만 답하고 추정은 하지 마라."
+        )
+        prompt = f"""
+너는 기업 밸류에이션 분석 어시스턴트다.
+아래 컨텍스트만 사용해서 답해라. 모르면 '정보 부족'이라고 써라.
+{limitation}
+출력은 반드시 JSON 객체 하나만 출력한다.
+
+JSON 스키마:
+{{
+  "answer": "한국어 4~8문장. 숫자는 가능한 경우에만 제시하고 단위(배, %, 억/조 등)를 포함. 마지막 문장에 데이터 한계를 1문장으로 명시."
+}}
+
+기업명: {company_name}
+질문: {question}
+
+컨텍스트:
+{context}
+""".strip()
+        raw = self.client.generate_json(settings.ollama_chat_model, prompt)
+        if isinstance(raw, dict):
+            text = str(raw.get("answer") or raw.get("raw") or "").strip()
+            if text:
+                return text
+        return "정보 부족: 현재 인덱스 근거만으로는 질문에 대한 신뢰 가능한 답변을 만들기 어렵습니다."
+
+    def _answer_synergy_question(
+        self,
+        company_name: str,
+        question: str,
+        readiness: str,
+        retrieved: list[dict[str, Any]],
+    ) -> str:
+        if not retrieved:
+            return "근거 문서가 부족해 답변을 만들 수 없습니다."
+
+        context = "\n\n".join(
+            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
+            for c in retrieved
+        )
+        limitation = (
+            "현재 데이터가 부분 수준이므로 수치는 범위로 제시하고 가정/한계를 명시해라."
+            if readiness == "부분"
+            else "근거가 있는 범위에서만 답하고 추정은 하지 마라."
+        )
+        prompt = f"""
+너는 M&A 시너지 분석 어시스턴트다.
+아래 컨텍스트만 사용해서 답해라. 모르면 '정보 부족'이라고 써라.
+{limitation}
+출력은 반드시 JSON 객체 하나만 출력한다.
+
+JSON 스키마:
+{{
+  "answer": "한국어 4~8문장. 가능하면 정량/정성 효과를 함께 제시. 마지막 문장에 데이터 한계를 1문장으로 명시."
+}}
+
+기업명: {company_name}
+질문: {question}
+
+컨텍스트:
+{context}
+""".strip()
+        raw = self.client.generate_json(settings.ollama_chat_model, prompt)
+        if isinstance(raw, dict):
+            text = str(raw.get("answer") or raw.get("raw") or "").strip()
+            if text:
+                return text
+        return "정보 부족: 현재 인덱스 근거만으로는 질문에 대한 신뢰 가능한 답변을 만들기 어렵습니다."
+
+    def _answer_due_diligence_question(
+        self,
+        company_name: str,
+        question: str,
+        readiness: str,
+        retrieved: list[dict[str, Any]],
+    ) -> str:
+        if not retrieved:
+            return "근거 문서가 부족해 답변을 만들 수 없습니다."
+
+        context = "\n\n".join(
+            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
+            for c in retrieved
+        )
+        limitation = (
+            "현재 데이터가 부분 수준이므로 확정 단정보다 리스크 신호 중심으로 작성해라."
+            if readiness == "부분"
+            else "근거가 있는 범위에서만 답하고 추정은 하지 마라."
+        )
+        prompt = f"""
+너는 M&A 실사(Due Diligence) 분석 어시스턴트다.
+아래 컨텍스트만 사용해서 답해라. 모르면 '정보 부족'이라고 써라.
+{limitation}
+출력은 반드시 JSON 객체 하나만 출력한다.
+
+JSON 스키마:
+{{
+  "answer": "한국어 4~8문장. 핵심 리스크, 영향도, 점검 우선순위를 포함하고 마지막 문장에 데이터 한계를 1문장으로 명시."
+}}
+
+기업명: {company_name}
+질문: {question}
+
+컨텍스트:
+{context}
+""".strip()
+        raw = self.client.generate_json(settings.ollama_chat_model, prompt)
+        if isinstance(raw, dict):
+            text = str(raw.get("answer") or raw.get("raw") or "").strip()
+            if text:
+                return text
+        return "정보 부족: 현재 인덱스 근거만으로는 질문에 대한 신뢰 가능한 답변을 만들기 어렵습니다."
+
+    def _answer_strategic_question(
+        self,
+        company_name: str,
+        question: str,
+        readiness: str,
+        retrieved: list[dict[str, Any]],
+    ) -> str:
+        if not retrieved:
+            return "근거 문서가 부족해 답변을 만들 수 없습니다."
+
+        context = "\n\n".join(
+            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
+            for c in retrieved
+        )
+        limitation = (
+            "현재 데이터가 부분 수준이므로 우선순위와 가정 중심으로 제시해라."
+            if readiness == "부분"
+            else "근거가 있는 범위에서만 답하고 추정은 하지 마라."
+        )
+        prompt = f"""
+너는 M&A 전략 의사결정 분석 어시스턴트다.
+아래 컨텍스트만 사용해서 답해라. 모르면 '정보 부족'이라고 써라.
+{limitation}
+출력은 반드시 JSON 객체 하나만 출력한다.
+
+JSON 스키마:
+{{
+  "answer": "한국어 4~8문장. 전략 적합성, 실행 난이도, 구조 대안을 함께 제시하고 마지막 문장에 데이터 한계를 1문장으로 명시."
+}}
+
+기업명: {company_name}
+질문: {question}
+
+컨텍스트:
+{context}
+""".strip()
+        raw = self.client.generate_json(settings.ollama_chat_model, prompt)
+        if isinstance(raw, dict):
+            text = str(raw.get("answer") or raw.get("raw") or "").strip()
+            if text:
+                return text
+        return "정보 부족: 현재 인덱스 근거만으로는 질문에 대한 신뢰 가능한 답변을 만들기 어렵습니다."
+
+    @staticmethod
+    def to_korean_readable(answer: dict[str, Any]) -> str:
+        template_id = str(answer.get("template_id") or RagPipeline.ENTRY_TEMPLATE_COMPANY_OVERVIEW)
+        template_name = str(answer.get("template_name") or RagPipeline.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW)
+        if template_id == RagPipeline.ENTRY_TEMPLATE_PEER_LIST:
+            listed = answer.get("listed_companies") if isinstance(answer.get("listed_companies"), list) else []
+            unlisted = answer.get("unlisted_companies") if isinstance(answer.get("unlisted_companies"), list) else []
+            rev_ebitda = answer.get("revenue_ebitda_comparison") if isinstance(answer.get("revenue_ebitda_comparison"), list) else []
+            multiples = answer.get("multiple_comparison") if isinstance(answer.get("multiple_comparison"), list) else []
+            industry_def = str(answer.get("industry_definition") or "정보 부족")
+            screening = answer.get("screening_conditions") if isinstance(answer.get("screening_conditions"), list) else []
+            lines = [f"[기본 템플릿: {template_name} ({template_id})]"]
+            lines.append(str(answer.get("summary") or "정보 부족"))
+            lines.append("")
+            lines.append(f"산업 정의: {industry_def}")
+            lines.append("스크리닝 조건: " + (", ".join(str(x) for x in screening) if screening else "정보 부족"))
+            lines.append("상장사 리스트:")
+            if listed:
+                for idx, r in enumerate(listed, start=1):
+                    company = str(r.get("company") or "정보 부족")
+                    market = str(r.get("market") or "정보 부족")
+                    fit = r.get("strategic_fit_score")
+                    fit_txt = f"{fit}점" if isinstance(fit, int) else "N/A"
+                    reason = str(r.get("reason") or "정보 부족")
+                    lines.append(f"{idx}. {company} ({market}) | 적합성 {fit_txt} | {reason}")
+            else:
+                lines.append("- 정보 부족")
+
+            lines.append("비상장사 리스트:")
+            if unlisted:
+                for idx, r in enumerate(unlisted, start=1):
+                    company = str(r.get("company") or "정보 부족")
+                    market = str(r.get("market") or "정보 부족")
+                    lines.append(f"{idx}. {company} ({market})")
+            else:
+                lines.append("- 정보 부족")
+
+            lines.append("매출/EBITDA 비교표:")
+            if rev_ebitda:
+                lines.append("회사 | 매출 | EBITDA")
+                for r in rev_ebitda:
+                    lines.append(
+                        f"{str(r.get('company') or '정보 부족')} | "
+                        f"{str(r.get('revenue') or '정보 부족')} | "
+                        f"{str(r.get('ebitda') or '정보 부족')}"
+                    )
+            else:
+                lines.append("- 정보 부족")
+
+            lines.append("멀티플 비교:")
+            if multiples:
+                lines.append("회사 | EV/EBITDA | PER")
+                for r in multiples:
+                    lines.append(
+                        f"{str(r.get('company') or '정보 부족')} | "
+                        f"{str(r.get('ev_ebitda') or '정보 부족')} | "
+                        f"{str(r.get('per') or '정보 부족')}"
+                    )
+            else:
+                lines.append("- 정보 부족")
+            return "\n".join(lines)
+
+        name = str(answer.get("company_name") or "해당 기업")
+        market = str(answer.get("market") or "정보 부족")
+        summary = str(answer.get("summary") or "정보 부족")
+        company_overview = str(answer.get("company_overview") or summary or "정보 부족")
+        business_structure = str(answer.get("business_structure") or "정보 부족")
+        rev_op_trend = str(answer.get("revenue_operating_income_5y_trend") or "정보 부족")
+        ebitda = str(answer.get("ebitda") or "정보 부족")
+        market_cap_top = str(answer.get("market_cap") or "정보 부족")
+
+        fs = answer.get("financial_snapshot") if isinstance(answer.get("financial_snapshot"), dict) else {}
+        market_cap = fs.get("market_cap", "정보 부족")
+        revenue = fs.get("revenue", "정보 부족")
+        op_income = fs.get("operating_income", "정보 부족")
+        net_income = fs.get("net_income", "정보 부족")
+
+        highlights = answer.get("highlights") if isinstance(answer.get("highlights"), list) else []
+        risks = answer.get("risks") if isinstance(answer.get("risks"), list) else []
+        similar = answer.get("similar_companies") if isinstance(answer.get("similar_companies"), list) else []
+        competitors = answer.get("competitors") if isinstance(answer.get("competitors"), list) else similar
+        key_risks = answer.get("key_risks") if isinstance(answer.get("key_risks"), list) else risks
+        recent_disclosures = answer.get("recent_disclosures") if isinstance(answer.get("recent_disclosures"), list) else []
+        sources = answer.get("sources") if isinstance(answer.get("sources"), list) else []
+
+        lines = [
+            f"[기본 템플릿: {template_name} ({template_id})]",
+            f"{name}은(는) {market} 시장에 속한 기업입니다.",
+            f"회사 개요: {company_overview}",
+            f"사업부 구조: {business_structure}",
+            f"매출/영업이익 5년 추이: {rev_op_trend}",
+            f"EBITDA: {ebitda}",
+            f"시가총액: {market_cap_top if market_cap_top != '정보 부족' else market_cap}",
+            "경쟁사: " + (", ".join(str(x) for x in competitors) if competitors else "정보 부족"),
+            "핵심 리스크: " + (", ".join(str(x) for x in key_risks) if key_risks else "정보 부족"),
+            "최근 주요 공시: " + (", ".join(str(x) for x in recent_disclosures) if recent_disclosures else "정보 부족"),
+            f"요약: {summary}",
+            "핵심 포인트: " + (", ".join(str(x) for x in highlights) if highlights else "정보 부족"),
+            "재무 스냅샷: "
+            f"시가총액 {market_cap}, 매출 {revenue}, 영업이익 {op_income}, 순이익 {net_income}",
+            "유사 기업: " + (", ".join(str(x) for x in similar) if similar else "정보 부족"),
+            "출처: " + (", ".join(str(x) for x in sources) if sources else "정보 부족"),
+        ]
+        return "\n".join(lines)

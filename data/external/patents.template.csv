@@ -1,0 +1,2 @@
+company,ticker,market,patent_id,title,tech_domain,filed_date,country,status,source_url
+삼성전자,005930.KS,KOSPI,KR-2026-000001,메모리 집적회로 냉각 구조,반도체,2026-01-15,KR,출원,https://example.com/patents

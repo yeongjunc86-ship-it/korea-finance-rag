@@ -1,0 +1,131 @@
+[Korea Finance RAG 작업 요약]
+최종 업데이트: 2026-02-16
+작성위치: /home/aidome/workspace/korea-finance-rag/PROJECT_REPORT_2026-02-14.txt
+
+0) 현재 확보한 데이터
+- Yahoo raw: 7,892건 (`data/raw/yahoo_*.json`)
+- DART raw: 3,946건 (`data/raw/dart_*.json`)
+- News raw: 1건 (`data/raw/news_*.json`)
+- 검색 인덱스 청크: 11,840행 (`data/index/chunks.jsonl`)
+
+1) 스키마
+- 문서: `workspace/korea-finance-rag/DATA_SCHEMA_SPEC.md`
+- 목적: raw/processed/index 데이터 형식과 필수 필드를 고정해 수집-정규화-인덱싱 간 호환성 유지
+
+2) API 계약서
+- 문서: `workspace/korea-finance-rag/API_CONTRACT_SPEC.md`
+- 목적: 프론트/백엔드/운영이 동일한 API 요청/응답 규격을 사용하도록 표준화
+
+3) 수집 파이프라인 표준화
+- 표준 문서: `workspace/korea-finance-rag/PIPELINE_STANDARD_SPEC.md`
+- 정규화 스크립트: `workspace/korea-finance-rag/scripts/normalize_manifest.py`
+- 실행 절차 반영: `workspace/korea-finance-rag/README.md:61`
+- 효과: 수집 소스별(raw) 데이터를 공통 매니페스트로 정리해 인덱싱 입력 일관성 확보
+
+4) 인덱싱 전략 확정
+- 전체 재생성: `scripts/run_index_full.sh`
+- 증분 업데이트: `scripts/run_index_incremental.sh`
+- 증분 엔진: `scripts/build_index_incremental.py`
+- 상태 동기화: `scripts/sync_index_state.py`
+- 효과: 초기/대규모 변경은 전체 재생성, 일상 운영은 변경분만 반영하는 구조 확정
+
+5) 검색 품질 기본선(Eval baseline)
+- 평가 스크립트: `scripts/eval_search_baseline.py`
+- 케이스 파일: `eval/baseline_questions_v1.jsonl`
+- 효과: 검색 품질을 주관적 체감이 아닌 재현 가능한 기준으로 측정 가능
+
+6) 운영 최소 요건
+- 문서: `workspace/korea-finance-rag/OPS_MINIMUM_SPEC.md`
+- 헬스체크: `GET /api/health` (인덱스 버전/문서수 확인)
+- 효과: 운영 상태를 빠르게 점검하고 장애 징후를 조기 발견 가능
+
+7) 웹 데이터 관리
+- 목적: 터미널 중심 데이터 관리 작업을 웹 UI에서 실행/관리 가능하게 전환
+- 기대 효과: 운영자 접근성 향상, 반복 작업 실수 감소
+
+8) 웹 관리자 데이터 관리
+- 목적: 관리자 권한 기반으로 데이터 작업을 제어하는 운영 콘솔 정리
+- 관련 화면: `/admin`, `/login`
+- 효과: 운영 기능 접근 통제 및 관리 절차 단순화
+
+9) 뉴스 수집기
+- 추가 스크립트: `workspace/korea-finance-rag/scripts/fetch_news.py`
+- 동작: 기업명 기반 RSS 수집 후 `data/raw/news_*.json` 저장
+- 자동화 연결:
+  - `scripts/run_full_collection.sh`에 뉴스 수집 단계 포함
+  - 수집 완료 후 `scripts/build_index_incremental.py` 자동 실행
+- 옵션:
+  - `NEWS_ENABLED=0` (뉴스 단계 비활성화)
+  - `INDEX_ENABLED=0` (증분 인덱싱 단계 비활성화)
+  - `INDEX_ALLOW_BOOTSTRAP=1` (초기 상태에서 증분 인덱싱 허용)
+- 효과: 뉴스 데이터가 수집 즉시 검색 인덱스에 반영되도록 파이프라인 일체화 완료
+
+10) 타겟/산업 분석 API 및 평가셋 확장
+- 타겟 10문항 API: `POST /api/target-analysis`
+- 산업 10문항 API: `POST /api/industry-analysis`
+- 산업 13/16/19 평가셋: `eval/industry_13_16_19_v1.jsonl` (18건)
+- 타겟 10문항 평가셋: `eval/target_analysis_questions_v1.jsonl` (30건)
+- 타겟 평가 스크립트: `scripts/eval_target_analysis.py`
+
+11) DART 주석 테이블 파서 강화 (P1)
+- 추가 스크립트: `scripts/parse_dart_notes.py`
+- 추출 범위: 고객의존도, 사업부(세그먼트), CAPEX, 부채만기/리파이낸싱 관련 텍스트 단서
+- 출력 파일: `data/raw/dart_notes_*.json`
+- 자동화 연결: `scripts/run_full_collection.sh`에 DART 주석 파싱 단계 포함 (`DART_NOTES_ENABLED=1`)
+
+12) 외부 데이터 파이프라인 연결 (P2)
+- 시장점유율 적재: `scripts/import_market_share_external.py` -> `data/raw/market_share_*.json`
+- 특허 적재: `scripts/import_patent_external.py` -> `data/raw/patent_*.json`
+- ESG 적재: `scripts/import_esg_external.py` -> `data/raw/esg_*.json`
+- 통합 실행: `scripts/run_external_enrichment.sh`
+- 자동화 옵션: `EXTERNAL_ENRICH_ENABLED=1 EXTERNAL_DIR=data/external ./scripts/run_full_collection.sh`
+- 입력 템플릿/가이드: `data/external/README.md`, `data/external/*.template.csv`
+
+13) 밸류에이션 10문항(21~30) 대응
+- API: `POST /api/valuation-analysis`
+- 질문 범위: EV/EBITDA, comps, WACC, 시나리오 가치, IRR, 시너지, PER, 환율, LBO, EBITDA 조정
+- 생성 스크립트:
+  - `scripts/build_valuation_cases.py` -> `data/raw/valuation_case_*.json`
+  - `scripts/import_mna_comps_external.py` -> `data/raw/mna_*.json`
+- 평가셋/평가 스크립트:
+  - `eval/valuation_analysis_21_30_v1.jsonl` (30건)
+  - `scripts/eval_valuation_analysis.py`
+
+14) 시너지 10문항(31~40) 대응
+- API: `POST /api/synergy-analysis`
+- 질문 범위: 매출/비용 시너지, 인력 중복, 유통망/조달 통합, IT 통합비, PMI 기간, 브랜드/법무 리스크
+- 생성 스크립트:
+  - `scripts/build_synergy_cases.py` -> `data/raw/synergy_case_*.json`
+- 평가셋/평가 스크립트:
+  - `eval/synergy_analysis_31_40_v1.jsonl` (30건)
+  - `scripts/eval_synergy_analysis.py`
+- 자동화 연결:
+  - `run_full_collection.sh`에 시너지 케이스 단계 포함 (`SYNERGY_CASE_ENABLED=1`)
+
+15) 리스크/실사 10문항(41~50) 대응
+- API: `POST /api/due-diligence-analysis`
+- 질문 범위: 재무실사 포인트, 우발채무, 매출인식, 재고평가, 세무, 핵심인력, CoC 조항, 보안/개인정보, 공급망, PMI 실패요인
+- 생성 스크립트:
+  - `scripts/build_due_diligence_cases.py` -> `data/raw/due_diligence_case_*.json`
+- 평가셋/평가 스크립트:
+  - `eval/due_diligence_analysis_41_50_v1.jsonl` (30건)
+  - `scripts/eval_due_diligence_analysis.py`
+- 자동화 연결:
+  - `run_full_collection.sh`에 실사 케이스 단계 포함 (`DUE_DILIGENCE_CASE_ENABLED=1`)
+- 운영 연계:
+  - 관리자 콘솔 작업 추가: 실사 케이스 생성 / 실사 10문항 평가
+
+16) 전략 의사결정 10문항(51~60) 대응
+- API: `POST /api/strategic-analysis`
+- 질문 범위: 전략적/재무적 인수 판별, 포트폴리오 적합성, 3년 Exit, 기회비용, 경쟁사 인수 영향, 단계 인수, Earn-out, 합병/자회사, 현금/주식, 최적 딜 구조
+- 생성 스크립트:
+  - `scripts/build_strategic_cases.py` -> `data/raw/strategic_case_*.json`
+- 평가셋/평가 스크립트:
+  - `eval/strategic_analysis_51_60_v1.jsonl` (30건)
+  - `scripts/eval_strategic_analysis.py`
+- 자동화 연결:
+  - `run_full_collection.sh`에 전략 케이스 단계 포함 (`STRATEGIC_CASE_ENABLED=1`)
+- 운영 연계:
+  - 관리자 콘솔 작업 추가: 전략 케이스 생성 / 전략 10문항 평가
+
+끝.
