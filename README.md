@@ -390,9 +390,11 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 브라우저에서 `http://localhost:8000` 접속.
 - 로그인 화면: `http://localhost:8000/login`
 - 데이터 관리 콘솔: `http://localhost:8000/admin` (관리자 로그인 필요)
+- 독립 업체검색 화면: `http://localhost:8000/company-search`
 - 관리자 콘솔에서 지원:
   - 뉴스 수집 옵션 입력(`limit_company`, `per_company`, `sleep`, `resume`) 후 실행
   - 기준 평가 옵션 입력(`limit`) 후 실행
+  - 업체검색 AI 설정(OpenAI/Gemini 사용 여부) 저장
 
 ### 4-1. 관리자 계정 생성/갱신
 ```bash
@@ -403,6 +405,13 @@ python scripts/create_admin_user.py --email admin@local --name 관리자
 기본 시드 계정(최초 실행 시 자동 생성):
 - 이메일: `admin@local`
 - 비밀번호: `admin1234!`
+
+### 4-2. 독립 업체검색 API
+- `POST /api/company-search`
+  - 입력: `prompt`, `top_k`, `txt_content(optional)`
+  - 출력: `local_results`(보유 벡터DB), `ai_results`(OpenAI/Gemini), `ai_providers_enabled`
+- `POST /api/company-search/register-ai-results` (관리자 권한 필요)
+  - AI 결과를 `data/raw/ai_company_search_*.json`으로 저장하고 즉시 임베딩/인덱스 반영
 
 ## 5. 정형 응답 포맷
 LLM 응답은 아래 JSON 스키마를 목표로 생성됩니다.

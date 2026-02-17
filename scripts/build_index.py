@@ -40,6 +40,23 @@ def chunk_text(text: str, chunk_size: int = 700, overlap: int = 120) -> list[str
     return chunks
 
 
+def infer_source_meta(path: Path, payload: dict) -> tuple[str, str, bool]:
+    explicit_layer = str(payload.get("source_layer") or "").strip().lower()
+    if explicit_layer in {"authoritative", "secondary", "ai"}:
+        layer = explicit_layer
+    elif path.name.startswith("dart_") or path.name.startswith("financials_5y_"):
+        layer = "authoritative"
+    elif path.name.startswith("ai_company_search_"):
+        layer = "ai"
+    else:
+        layer = "secondary"
+    source_type = str(payload.get("source_type") or "").strip().lower() or (
+        "ai_provider" if layer == "ai" else "raw_json"
+    )
+    approved = bool(payload.get("approved", True))
+    return layer, source_type, approved
+
+
 def normalize_record(path: Path, payload: dict) -> tuple[str, str, str]:
     company = payload.get("company") or payload.get("corp_name") or payload.get("stock_name") or path.stem
     market = payload.get("market") or payload.get("corp_cls") or "OTHER"
@@ -171,6 +188,7 @@ def main() -> None:
         for path in files:
             payload = json.loads(path.read_text(encoding="utf-8"))
             company, market, full_text = normalize_record(path, payload)
+            source_layer, source_type, approved = infer_source_meta(path, payload)
             for i, ch in enumerate(chunk_text(full_text)):
                 emb = client.embed(settings.ollama_embed_model, ch)
                 row = {
@@ -180,6 +198,9 @@ def main() -> None:
                     "source": str(path),
                     "text": ch,
                     "embedding": emb,
+                    "source_layer": source_layer,
+                    "source_type": source_type,
+                    "approved": approved,
                 }
                 out.write(json.dumps(row, ensure_ascii=False) + "\n")
                 count += 1

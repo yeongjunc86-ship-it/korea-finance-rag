@@ -12,7 +12,9 @@
     <div class="topbar">
       <h1>데이터 관리 콘솔</h1>
       <div class="row">
-        <a class="link-btn" href="/">서비스 화면</a>
+        <a class="link-btn" href="/company-search">업체검색</a>
+        <a class="link-btn" href="/">전략 수립</a>
+        <a class="link-btn" href="/admin">운영 콘솔</a>
         <button id="logoutBtn" type="button">로그아웃</button>
       </div>
     </div>
@@ -242,6 +244,21 @@
           외부 데이터 폴더
           <input id="externalDir" type="text" value="data/external" />
         </label>
+      </div>
+
+      <h3>업체검색 AI 연동 설정</h3>
+      <div class="row wrap">
+        <label>
+          OpenAI 사용
+          <input id="companySearchEnableOpenai" type="checkbox" checked />
+        </label>
+        <label>
+          Gemini 사용
+          <input id="companySearchEnableGemini" type="checkbox" checked />
+        </label>
+      </div>
+      <div class="row wrap">
+        <button id="saveCompanySearchSettingsBtn" type="button">업체검색 설정 저장</button>
       </div>
     </section>
 

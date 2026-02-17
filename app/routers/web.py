@@ -22,6 +22,11 @@ def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
+@router.get("/company-search", response_class=HTMLResponse)
+def company_search(request: Request):
+    return templates.TemplateResponse("company_search.html", {"request": request})
+
+
 @router.get("/admin", response_class=HTMLResponse)
 def admin(request: Request):
     role = _current_role(request)

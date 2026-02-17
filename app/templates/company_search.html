@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AIDOME 업체 검색</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <div class="topbar">
+      <h1>업체 검색</h1>
+      <div class="row">
+        <a class="link-btn" href="/company-search">업체검색</a>
+        <a class="link-btn" href="/">전략 수립</a>
+        <a class="link-btn" href="/admin">운영 콘솔</a>
+      </div>
+    </div>
+
+    <section class="card">
+      <h2>검색 입력</h2>
+      <label for="searchPrompt">검색 프롬프트</label>
+      <textarea id="searchPrompt" rows="4" placeholder="예: (선택) 전장 반도체 관련 국내 상장사"></textarea>
+      <div class="row wrap">
+        <label>
+          TXT 파일 첨부
+          <input id="txtFile" type="file" accept=".txt" />
+        </label>
+        <label>
+          결과 개수
+          <input id="topK" type="number" min="1" max="30" value="10" />
+        </label>
+      </div>
+      <div class="row wrap">
+        <button id="searchBtn" type="button">업체 검색 수행</button>
+        <button id="clearBtn" class="ghost-btn" type="button">초기화</button>
+      </div>
+      <p id="searchStatus" class="muted">아직 요청 없음</p>
+      <p class="muted">프롬프트 없이 TXT 파일만 업로드해도 업체를 유추해 분석합니다.</p>
+    </section>
+
+    <div class="split-grid">
+      <section class="card">
+        <h2>기존 데이터 결과 (회사 개요 템플릿)</h2>
+        <pre id="localResultView">아직 요청 없음</pre>
+      </section>
+      <section class="card">
+        <h2>AI 검색 결과 (회사 개요 템플릿)</h2>
+        <div class="row wrap">
+          <button id="registerAiBtn" type="button">AI 결과 DB 등록</button>
+        </div>
+        <pre id="aiResultView">아직 요청 없음</pre>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>AI 프롬프트/응답</h2>
+      <h3>AI에 전달된 프롬프트</h3>
+      <pre id="aiPromptView">아직 요청 없음</pre>
+      <h3>AI 원본 JSON 응답</h3>
+      <pre id="aiRawResponseView">아직 요청 없음</pre>
+    </section>
+  </main>
+  <script src="/static/company_search.js?v=20260217c"></script>
+</body>
+</html>

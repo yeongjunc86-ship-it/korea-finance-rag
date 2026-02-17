@@ -297,6 +297,34 @@ async function refreshStatus() {
   }
 }
 
+async function loadCompanySearchSettings() {
+  try {
+    const data = await getJson("/api/admin/company-search-settings");
+    const openaiEl = document.getElementById("companySearchEnableOpenai");
+    const geminiEl = document.getElementById("companySearchEnableGemini");
+    if (openaiEl) openaiEl.checked = Boolean(data.enable_openai);
+    if (geminiEl) geminiEl.checked = Boolean(data.enable_gemini);
+  } catch (_) {
+    // Keep defaults on error.
+  }
+}
+
+async function saveCompanySearchSettings() {
+  const openaiEl = document.getElementById("companySearchEnableOpenai");
+  const geminiEl = document.getElementById("companySearchEnableGemini");
+  const payload = {
+    enable_openai: Boolean(openaiEl?.checked),
+    enable_gemini: Boolean(geminiEl?.checked),
+  };
+  try {
+    const data = await postJson("/api/admin/company-search-settings", payload);
+    const m = `업체검색 설정 저장 완료 (openai=${data.enable_openai}, gemini=${data.enable_gemini})`;
+    taskView.textContent = m;
+  } catch (err) {
+    taskView.textContent = `업체검색 설정 저장 오류: ${err.message}`;
+  }
+}
+
 async function runTask(task) {
   taskView.textContent = `실행 중: ${taskNameMap[task] || task}`;
   try {
@@ -415,5 +443,10 @@ if (exportTxtBtn) {
 if (exportPdfBtn) {
   exportPdfBtn.addEventListener("click", exportTaskResultPdf);
 }
+const saveCompanySearchSettingsBtn = document.getElementById("saveCompanySearchSettingsBtn");
+if (saveCompanySearchSettingsBtn) {
+  saveCompanySearchSettingsBtn.addEventListener("click", saveCompanySearchSettings);
+}
 
 refreshStatus();
+loadCompanySearchSettings();

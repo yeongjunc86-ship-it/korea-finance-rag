@@ -838,7 +838,12 @@ JSON 스키마:
             "results": results,
         }
 
-    def similar_companies(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
+    def similar_companies(
+        self,
+        query: str,
+        top_k: int = 5,
+        allowed_layers: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
         self._ensure_fresh_index()
         if not self._chunks:
             return []
@@ -852,6 +857,11 @@ JSON 스키마:
 
         scored_rows: list[tuple[float, dict[str, Any], list[str]]] = []
         for row in self._chunks:
+            if not bool(row.get("approved", True)):
+                continue
+            row_layer = self._source_layer_of_row(row)
+            if allowed_layers and row_layer not in allowed_layers:
+                continue
             text = str(row.get("text") or "")
             emb = row.get("embedding")
             if not isinstance(emb, list):
@@ -895,6 +905,7 @@ JSON 스키마:
                         if pick:
                             market = pick.upper()
             source = str(row.get("source") or "")
+            source_layer = self._source_layer_of_row(row)
             strategic_fit_score = int(round(max(0.0, min(1.0, score)) * 100))
             if strategic_fit_score < 1:
                 continue
@@ -908,6 +919,8 @@ JSON 스키마:
                 "strategic_fit_score": strategic_fit_score,
                 "reason": reason,
                 "source": source,
+                "source_layer": source_layer,
+                "approved": bool(row.get("approved", True)),
             }
 
             if existing is None:
@@ -925,6 +938,176 @@ JSON 스키마:
 
         ranked = sorted(best_by_company.values(), key=lambda x: x["score"], reverse=True)
         return ranked[:top_k]
+
+    @staticmethod
+    def _source_layer_of_row(row: dict[str, Any]) -> str:
+        explicit = str(row.get("source_layer") or "").strip().lower()
+        if explicit in {"authoritative", "secondary", "ai"}:
+            return explicit
+        source = str(row.get("source") or "").lower()
+        if "dart_" in source or "disclosure" in source or "financials_5y_" in source:
+            return "authoritative"
+        if "ai_company_search_" in source or "chatgpt" in source or "gemini" in source:
+            return "ai"
+        return "secondary"
+
+    @staticmethod
+    def _chunk_text_for_index(text: str, chunk_size: int = 700, overlap: int = 120) -> list[str]:
+        text = re.sub(r"\s+", " ", str(text or "")).strip()
+        if not text:
+            return []
+        chunks: list[str] = []
+        start = 0
+        n = len(text)
+        while start < n:
+            end = min(n, start + chunk_size)
+            chunks.append(text[start:end])
+            if end == n:
+                break
+            start = max(0, end - overlap)
+        return chunks
+
+    def register_ai_company_results(
+        self,
+        query: str,
+        provider: str,
+        items: list[dict[str, Any]],
+        approved_by: str,
+    ) -> dict[str, Any]:
+        root = Path(__file__).resolve().parents[2]
+        raw_dir = root / "data" / "raw"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+
+        kept_items: list[dict[str, Any]] = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            company = str(it.get("company") or "").strip()
+            if not company:
+                continue
+            kept_items.append(
+                {
+                    "company": company,
+                    "market": str(it.get("market") or "정보 부족"),
+                    "strategic_fit_score": int(it.get("strategic_fit_score") or 0),
+                    "reason": str(it.get("reason") or "정보 부족"),
+                    "source": str(it.get("source") or provider),
+                }
+            )
+
+        if not kept_items:
+            return {"ok": False, "added_chunks": 0, "message": "등록 가능한 AI 결과가 없습니다."}
+
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        file_path = raw_dir / f"ai_company_search_{provider}_{ts}.json"
+        payload = {
+            "source_layer": "ai",
+            "source_type": "ai_provider",
+            "provider": provider,
+            "query": query,
+            "approved": True,
+            "approved_by": approved_by,
+            "collected_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "items": kept_items,
+        }
+        file_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        index_path = Path(settings.index_path)
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        next_idx = 0
+        if index_path.exists():
+            try:
+                with index_path.open("r", encoding="utf-8") as r:
+                    for line in r:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        row = json.loads(line)
+                        rid = str(row.get("id") or "")
+                        if rid.startswith(file_path.stem + ":"):
+                            part = rid.split(":")[-1]
+                            if part.isdigit():
+                                next_idx = max(next_idx, int(part) + 1)
+            except (OSError, json.JSONDecodeError):
+                next_idx = 0
+
+        add_rows: list[dict[str, Any]] = []
+        for item in kept_items:
+            text = (
+                f"회사명: {item['company']}\n"
+                f"시장: {item['market']}\n"
+                f"전략 적합성 점수: {item['strategic_fit_score']}\n"
+                f"추천 사유: {item['reason']}\n"
+                f"질의: {query}\n"
+                f"AI Provider: {provider}"
+            )
+            for ch in self._chunk_text_for_index(text):
+                emb = self.client.embed(settings.ollama_embed_model, ch)
+                add_rows.append(
+                    {
+                        "id": f"{file_path.stem}:{next_idx}",
+                        "company": item["company"],
+                        "market": item["market"],
+                        "source": str(file_path),
+                        "text": ch,
+                        "embedding": emb,
+                        "source_layer": "ai",
+                        "source_type": "ai_provider",
+                        "approved": True,
+                        "approved_by": approved_by,
+                    }
+                )
+                next_idx += 1
+
+        with index_path.open("a", encoding="utf-8") as w:
+            for row in add_rows:
+                w.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+        self.reload_index()
+        return {"ok": True, "added_chunks": len(add_rows), "source": str(file_path)}
+
+    def delete_ai_company_source(self, source: str) -> dict[str, Any]:
+        src = str(source or "").strip()
+        if not src:
+            return {"ok": False, "removed_chunks": 0, "message": "source가 비어 있습니다."}
+        index_path = Path(settings.index_path)
+        if not index_path.exists():
+            return {"ok": False, "removed_chunks": 0, "message": "인덱스 파일이 없습니다."}
+
+        kept: list[dict[str, Any]] = []
+        removed = 0
+        with index_path.open("r", encoding="utf-8") as r:
+            for line in r:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if str(row.get("source") or "") == src:
+                    removed += 1
+                    continue
+                kept.append(row)
+
+        tmp = index_path.with_suffix(".jsonl.tmp")
+        with tmp.open("w", encoding="utf-8") as w:
+            for row in kept:
+                w.write(json.dumps(row, ensure_ascii=False) + "\n")
+        tmp.replace(index_path)
+
+        p = Path(src)
+        if p.exists() and p.is_file():
+            try:
+                payload = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(payload, dict):
+                    payload["approved"] = False
+                    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        self.reload_index()
+        return {"ok": True, "removed_chunks": removed, "source": src}
 
     @staticmethod
     def _normalize_market(market: str) -> str:
@@ -2257,6 +2440,32 @@ JSON 스키마:
         name = str(best_item.get("canonical_name") or "").strip()
         return name or None
 
+    def infer_companies_from_text(self, text: str, top_k: int = 5) -> list[str]:
+        idx = self._load_company_master_index()
+        if not idx:
+            return []
+        nq = self._normalize_company_name(text)
+        if not nq:
+            return []
+
+        best_len_by_name: dict[str, int] = {}
+        for key, item in idx.items():
+            if len(key) < 3:
+                continue
+            if key not in nq:
+                continue
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("canonical_name") or "").strip()
+            if not name:
+                continue
+            cur = best_len_by_name.get(name, 0)
+            if len(key) > cur:
+                best_len_by_name[name] = len(key)
+
+        ranked = sorted(best_len_by_name.items(), key=lambda x: x[1], reverse=True)
+        return [name for name, _ in ranked[: max(1, top_k)]]
+
     def _company_alias_candidates(self, company_name: str) -> set[str]:
         out: set[str] = set()
         n = self._normalize_company_name(company_name)
@@ -2559,6 +2768,36 @@ JSON 스키마:
         return "정보 부족: 현재 인덱스 근거만으로는 질문에 대한 신뢰 가능한 답변을 만들기 어렵습니다."
 
     @staticmethod
+    def _is_ticker_like_name(name: str) -> bool:
+        n = str(name or "").strip().upper()
+        if not n:
+            return True
+        if n in {"정보 부족", "UNKNOWN", "N/A"}:
+            return True
+        if re.fullmatch(r"[0-9A-Z]{4,}\.(KQ|KS|KR|US|JP|HK)", n):
+            return True
+        if re.fullmatch(r"[0-9]{6}", n):
+            return True
+        return False
+
+    @staticmethod
+    def _is_masked_company_name(name: str) -> bool:
+        n = str(name or "").strip()
+        if not n:
+            return True
+        # e.g. "주식회사 00산업", "OO테크", "**산업", "XX전자"
+        compact = re.sub(r"\s+", "", n)
+        if re.search(r"(주식회사)?[0O〇○]{2,}", compact, re.IGNORECASE):
+            return True
+        if re.search(r"(주식회사)?[xX\*]{2,}", compact):
+            return True
+        if re.search(r"(주식회사)?[oO]{2,}", compact):
+            return True
+        if "익명" in compact or "비공개" in compact:
+            return True
+        return False
+
+    @staticmethod
     def to_korean_readable(answer: dict[str, Any]) -> str:
         template_id = str(answer.get("template_id") or RagPipeline.ENTRY_TEMPLATE_COMPANY_OVERVIEW)
         template_name = str(answer.get("template_name") or RagPipeline.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW)
@@ -2621,6 +2860,26 @@ JSON 스키마:
             return "\n".join(lines)
 
         name = str(answer.get("company_name") or "해당 기업")
+        if RagPipeline._is_ticker_like_name(name) or RagPipeline._is_masked_company_name(name):
+            lines = [
+                "업체명: 정보 부족",
+                f"[기본 템플릿: {template_name} ({template_id})]",
+                "회사 식별 불가: 업체명이 확인되지 않아 내부 정보를 사용할 수 없습니다.",
+                "회사 개요: 정보 부족",
+                "사업부 구조: 정보 부족",
+                "매출/영업이익 5년 추이: 정보 부족",
+                "EBITDA: 정보 부족",
+                "시가총액: 정보 부족",
+                "경쟁사: 정보 부족",
+                "핵심 리스크: 정보 부족",
+                "최근 주요 공시: 정보 부족",
+                "요약: 업체명 확인 후 다시 질의해 주세요.",
+                "핵심 포인트: 정보 부족",
+                "재무 스냅샷: 시가총액 정보 부족, 매출 정보 부족, 영업이익 정보 부족, 순이익 정보 부족",
+                "유사 기업: 정보 부족",
+                "출처: 정보 부족",
+            ]
+            return "\n".join(lines)
         market = str(answer.get("market") or "정보 부족")
         summary = str(answer.get("summary") or "정보 부족")
         company_overview = str(answer.get("company_overview") or summary or "정보 부족")
@@ -2644,6 +2903,7 @@ JSON 스키마:
         sources = answer.get("sources") if isinstance(answer.get("sources"), list) else []
 
         lines = [
+            f"업체명: {name}",
             f"[기본 템플릿: {template_name} ({template_id})]",
             f"{name}은(는) {market} 시장에 속한 기업입니다.",
             f"회사 개요: {company_overview}",

@@ -12,6 +12,8 @@
     <div class="topbar">
       <h1>AIDOME M&A 전략 분석</h1>
       <div class="row">
+        <a class="link-btn" href="/company-search">업체검색</a>
+        <a class="link-btn" href="/">전략 수립</a>
         <a class="link-btn" href="/admin">운영 콘솔</a>
       </div>
     </div>
@@ -22,32 +24,42 @@
       <label for="question">자연어 질의</label>
       <textarea id="question" rows="4" placeholder="예: 신재생 에너지 사업 시너지를 위해 인수 검토할 국내 상장사 3곳을 리스크와 함께 요약해줘"></textarea>
       <div class="row wrap">
-        <button id="runBtn">수행</button>
+        <button id="runBtn">전략 분석 수행</button>
+        <button id="searchCompaniesBtn" type="button">업체 검색</button>
         <button id="clearBtn" class="ghost-btn" type="button">화면 초기화</button>
       </div>
     </section>
 
     <div class="split-grid">
       <section class="card">
-        <h2>전략 분석 보고서</h2>
-        <div class="row">
-          <button id="exportReportTxtBtn" type="button">보고서 TXT</button>
-          <button id="exportReportPdfBtn" type="button">보고서 PDF</button>
-        </div>
-        <pre id="result">아직 요청 없음</pre>
+        <h2>기존 데이터 결과</h2>
+        <pre id="ownedCompanyResultView">아직 요청 없음</pre>
       </section>
-
       <section class="card">
-        <h2>근거 출처</h2>
-        <div id="sourcesBox" class="sources-list muted">아직 요청 없음</div>
+        <h2>AI 검색 결과</h2>
+        <div class="row">
+          <button id="registerAiToDbBtn" type="button">기존 데이터 추가</button>
+        </div>
+        <pre id="aiCompanyResultView">아직 요청 없음</pre>
       </section>
     </div>
 
     <section class="card">
-      <h2>유사 업체 탐색기</h2>
+      <h2>유사 업체 리스트</h2>
       <div id="peerGrid" class="peer-grid muted">아직 요청 없음</div>
     </section>
+
+    <div class="split-grid">
+      <section class="card">
+        <h2>기존 데이터 유사 업체</h2>
+        <div id="ownedCompanyResultGrid" class="peer-grid muted">아직 요청 없음</div>
+      </section>
+      <section class="card">
+        <h2>AI 유사 업체</h2>
+        <div id="aiCompanyResultGrid" class="peer-grid muted">아직 요청 없음</div>
+      </section>
+    </div>
   </main>
-  <script src="/static/app.js?v=20260216c"></script>
+  <script src="/static/app.js?v=20260217b"></script>
 </body>
 </html>
