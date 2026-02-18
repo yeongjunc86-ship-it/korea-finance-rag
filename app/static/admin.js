@@ -34,6 +34,11 @@ const disclosureProgressBar = document.getElementById("disclosureProgressBar");
 let adminLastAiQuery = "";
 let adminLastAiRows = [];
 let adminLastAiProvider = "";
+let adminLastAiTemplateId = "company_overview";
+let adminLastAiTemplateName = "기업 개요 분석";
+let adminLastAiCompany = "";
+let adminLastAiAnswerText = "";
+let adminLastAiAnswerJson = null;
 let adminLastInternetQuery = "";
 let adminLastInternetRows = [];
 let disclosurePollTimer = null;
@@ -192,6 +197,11 @@ async function runAdminAiSearch() {
     adminLastAiQuery = basePrompt || "admin-ai-search";
     adminLastAiRows = Array.isArray(data.ai_similar_results) ? data.ai_similar_results : [];
     adminLastAiProvider = String(data.provider || "").trim();
+    adminLastAiTemplateId = templateId;
+    adminLastAiTemplateName = String(templateEl?.selectedOptions?.[0]?.textContent || templateId).trim();
+    adminLastAiAnswerText = String(data.ai_answer_text || "").trim();
+    adminLastAiAnswerJson = data.ai_raw_response && typeof data.ai_raw_response === "object" ? data.ai_raw_response : null;
+    adminLastAiCompany = String(data.inferred_company || data.ai_raw_response?.company_name || commonCompanies || "").trim();
   } catch (err) {
     resultView.textContent = `오류: ${err.message}`;
   }
@@ -225,6 +235,11 @@ async function registerAdminAiSearchResult() {
       query: adminLastAiQuery,
       provider: adminLastAiProvider,
       items: adminLastAiRows,
+      template_id: adminLastAiTemplateId,
+      template_name: adminLastAiTemplateName,
+      company_name: adminLastAiCompany,
+      answer_text: adminLastAiAnswerText,
+      answer_json: adminLastAiAnswerJson,
     });
     if (data.ok) {
       appendLog(

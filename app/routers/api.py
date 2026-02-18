@@ -1111,13 +1111,54 @@ def register_ai_results(req: RegisterAiResultsRequest, request: Request) -> dict
     _require_admin(request)
     payload = _session_payload(request) or {}
     approved_by = str(payload.get("uid") or payload.get("email") or "admin")
-    result = pipeline.register_ai_company_results(
-        query=req.query,
-        provider=req.provider,
-        items=[x.model_dump() for x in req.items],
-        approved_by=approved_by,
-    )
-    return {"ok": bool(result.get("ok")), **result}
+    total_added = 0
+    sources: list[str] = []
+    ok = False
+    messages: list[str] = []
+
+    if req.items:
+        item_result = pipeline.register_ai_company_results(
+            query=req.query,
+            provider=req.provider,
+            items=[x.model_dump() for x in req.items],
+            approved_by=approved_by,
+        )
+        ok = ok or bool(item_result.get("ok"))
+        total_added += int(item_result.get("added_chunks") or 0)
+        src = str(item_result.get("source") or "").strip()
+        if src:
+            sources.append(src)
+        msg = str(item_result.get("message") or "").strip()
+        if msg:
+            messages.append(msg)
+
+    if req.answer_text or req.answer_json:
+        template_result = pipeline.register_ai_template_result(
+            query=req.query,
+            provider=req.provider,
+            template_id=str(req.template_id or "company_overview"),
+            template_name=str(req.template_name or ""),
+            company_name=str(req.company_name or ""),
+            answer_text=str(req.answer_text or ""),
+            answer_json=req.answer_json if isinstance(req.answer_json, dict) else None,
+            approved_by=approved_by,
+        )
+        ok = ok or bool(template_result.get("ok"))
+        total_added += int(template_result.get("added_chunks") or 0)
+        src = str(template_result.get("source") or "").strip()
+        if src:
+            sources.append(src)
+
+    if not req.items and not req.answer_text and not req.answer_json:
+        return {"ok": False, "added_chunks": 0, "message": "등록할 AI 결과(items 또는 answer_text/answer_json)가 없습니다."}
+
+    return {
+        "ok": ok,
+        "added_chunks": total_added,
+        "source": sources[0] if sources else "",
+        "sources": sources,
+        "message": "; ".join(messages) if messages else "",
+    }
 
 
 @router.post("/company-search/register-internet-results")

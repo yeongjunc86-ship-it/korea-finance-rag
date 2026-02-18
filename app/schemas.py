@@ -191,6 +191,11 @@ class RegisterAiResultsRequest(BaseModel):
     query: str = Field(..., min_length=2)
     provider: str = Field(..., min_length=2)
     items: list[CompanySearchItem] = Field(default_factory=list)
+    template_id: str | None = None
+    template_name: str | None = None
+    company_name: str | None = None
+    answer_text: str | None = None
+    answer_json: dict[str, Any] | None = None
 
 
 class RegisterInternetResultsRequest(BaseModel):

@@ -192,3 +192,51 @@
   - 인수 필요성/재무 타당성/리스크 TOP3/최종의견 fallback 보강
 
 끝.
+
+23) 첫 페이지/운영 AI 저장 로직 정합화 (2026-02-19 00시대 작업)
+- 문제 요약:
+  - 첫 페이지 검색에서 `삼성전자` 기준으로 개요 템플릿만 AI 벡터 출처가 보이고,
+    나머지 템플릿은 기존 데이터 위주로 보여 상호보완 의도와 불일치.
+  - 운영 콘솔의 `AI 결과 DB 등록`은 템플릿 본문이 아닌 `유사업체 items`만 저장하고 있어,
+    템플릿을 바꿔도 벡터에 실질적으로 같은 형태만 누적됨.
+- 반영 내용 A (검색 보완):
+  - 파일: `app/services/rag_pipeline.py`
+  - 템플릿 공통 보조근거 병합 강화:
+    - `_company_support_rows`에서 AI 레이어(`source_layer=ai`)를 alias 기준으로 직접 보강
+    - 병합 상한을 `max(k*2, 12)`로 확대
+    - `_merge_rows`를 교차 병합(기존/보조 번갈아)으로 변경해 AI 출처가 뒤로 밀려 사라지는 현상 완화
+  - 템플릿별 `answer["sources"]`를 병합된 retrieved 기준으로 재계산
+- 반영 내용 B (운영 AI 저장 수정: 핵심):
+  - 파일: `app/schemas.py`
+    - `RegisterAiResultsRequest`에 추가:
+      - `template_id`, `template_name`, `company_name`, `answer_text`, `answer_json`
+  - 파일: `app/services/rag_pipeline.py`
+    - `register_ai_template_result(...)` 신규 추가
+    - 저장 파일:
+      - `data/raw/ai_template_result_<provider>_<template_id>_<timestamp>.json`
+    - 벡터화 내용:
+      - 회사명/템플릿ID/템플릿명/질의/AI Provider/템플릿 결과 본문/원본 JSON
+    - 인덱스 메타:
+      - `source_layer="ai"`, `source_type="ai_template_result"`
+  - 파일: `app/routers/api.py`
+    - `POST /api/company-search/register-ai-results` 확장:
+      - 기존 `items` 저장 유지
+      - 새 템플릿 본문 저장 동시 수행
+      - 둘 중 하나라도 있으면 저장
+  - 파일: `app/static/admin.js`
+    - 운영 콘솔 AI 등록 요청에 템플릿 메타/본문/원본 JSON 동봉
+- 운영 결과:
+  - 이제 운영에서 템플릿을 바꿔 `AI 결과 DB 등록`을 반복하면
+    템플릿별 본문 자체가 AI 벡터로 누적됨(기존 items-only 저장과 병행).
+- Codex resume 인수인계 포인트:
+  - 우선 확인 파일:
+    - `app/services/rag_pipeline.py`
+    - `app/routers/api.py`
+    - `app/static/admin.js`
+    - `app/schemas.py`
+  - 확인 대상 데이터:
+    - `data/raw/ai_template_result_*.json` 생성 여부
+    - `data/index/chunks.jsonl` 내 `source_type=ai_template_result` 청크 존재 여부
+  - 다음 검증 시나리오:
+    - 운영 콘솔에서 같은 업체로 템플릿 2개 이상 검색 후 각각 DB 등록
+    - 첫 페이지 검색 시 출처에 서로 다른 `ai_template_result_*`가 표시되는지 확인

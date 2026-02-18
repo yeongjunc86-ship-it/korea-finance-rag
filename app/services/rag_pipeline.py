@@ -288,20 +288,25 @@ class RagPipeline:
         def _merge_rows(primary: list[dict[str, Any]], secondary: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
             merged: list[dict[str, Any]] = []
             seen: set[tuple[str, str, str]] = set()
-            for row in list(primary) + list(secondary):
-                if not isinstance(row, dict):
-                    continue
-                key = (
-                    str(row.get("source") or ""),
-                    str(row.get("company") or ""),
-                    str(row.get("text") or ""),
-                )
-                if key in seen:
-                    continue
-                seen.add(key)
-                merged.append(row)
-                if len(merged) >= limit:
-                    break
+            max_len = max(len(primary), len(secondary))
+            for i in range(max_len):
+                candidates: list[dict[str, Any]] = []
+                if i < len(primary) and isinstance(primary[i], dict):
+                    candidates.append(primary[i])
+                if i < len(secondary) and isinstance(secondary[i], dict):
+                    candidates.append(secondary[i])
+                for row in candidates:
+                    key = (
+                        str(row.get("source") or ""),
+                        str(row.get("company") or ""),
+                        str(row.get("text") or ""),
+                    )
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    merged.append(row)
+                    if len(merged) >= limit:
+                        return merged
             return merged
 
         def _company_support_rows(company_name: str, limit: int = 6) -> list[dict[str, Any]]:
@@ -353,7 +358,11 @@ class RagPipeline:
                 retrieved = self._retrieve_for_company_query(company_hint, question, top_k=k, allow_fallback=False)
             else:
                 retrieved = self.retrieve(question, top_k=k)
-            retrieved = _merge_rows(retrieved, _company_support_rows(company_hint or "", limit=max(4, k // 2)), limit=max(k, 8))
+            retrieved = _merge_rows(
+                retrieved,
+                _company_support_rows(company_hint or "", limit=max(4, k // 2)),
+                limit=max(k * 2, 12),
+            )
             if not retrieved:
                 msg = "질문에 필요한 근거를 찾지 못했습니다. 먼저 데이터를 수집하고 인덱스를 생성해 주세요."
                 if company_hint:
@@ -389,7 +398,11 @@ class RagPipeline:
             industry_name = self._extract_industry_from_query(question) or "정보 부족"
             retrieved = self._retrieve_for_industry_query(industry_name if industry_name != "정보 부족" else question, question, top_k=k)
             company_hint = self._extract_company_from_query(question) or (similar_names[0] if similar_names else "")
-            retrieved = _merge_rows(retrieved, _company_support_rows(company_hint, limit=max(4, k // 2)), limit=max(k, 8))
+            retrieved = _merge_rows(
+                retrieved,
+                _company_support_rows(company_hint, limit=max(4, k // 2)),
+                limit=max(k * 2, 12),
+            )
             if not retrieved:
                 return _base_answer("산업/시장 분석 근거가 부족합니다. 인덱스를 갱신하거나 산업명을 더 구체화해 주세요."), []
             detail = self._industry_market_simple_template(industry_name, question, retrieved)
@@ -414,7 +427,11 @@ class RagPipeline:
             retrieved = (
                 self._retrieve_for_company_query(company_name, question, top_k=k) if company_name != "정보 부족" else self.retrieve(question, top_k=k)
             )
-            retrieved = _merge_rows(retrieved, _company_support_rows(company_name, limit=max(4, k // 2)), limit=max(k, 8))
+            retrieved = _merge_rows(
+                retrieved,
+                _company_support_rows(company_name, limit=max(4, k // 2)),
+                limit=max(k * 2, 12),
+            )
             if not retrieved:
                 return _base_answer("밸류에이션 분석 근거가 부족합니다. 대상 회사를 명시하거나 인덱스를 갱신해 주세요.", company_name=company_name), []
             detail = self._valuation_simple_template(company_name, question, retrieved)
@@ -468,7 +485,11 @@ class RagPipeline:
             retrieved = (
                 self._retrieve_for_company_query(company_name, question, top_k=k) if company_name != "정보 부족" else self.retrieve(question, top_k=k)
             )
-            retrieved = _merge_rows(retrieved, _company_support_rows(company_name, limit=max(4, k // 2)), limit=max(k, 8))
+            retrieved = _merge_rows(
+                retrieved,
+                _company_support_rows(company_name, limit=max(4, k // 2)),
+                limit=max(k * 2, 12),
+            )
             if not retrieved:
                 return _base_answer("리스크/실사 분석 근거가 부족합니다. 대상 회사를 명시하거나 인덱스를 갱신해 주세요.", company_name=company_name), []
             detail = self._due_diligence_simple_template(company_name, question, retrieved)
@@ -488,7 +509,11 @@ class RagPipeline:
             retrieved = (
                 self._retrieve_for_company_query(company_name, question, top_k=k) if company_name != "정보 부족" else self.retrieve(question, top_k=k)
             )
-            retrieved = _merge_rows(retrieved, _company_support_rows(company_name, limit=max(4, k // 2)), limit=max(k, 8))
+            retrieved = _merge_rows(
+                retrieved,
+                _company_support_rows(company_name, limit=max(4, k // 2)),
+                limit=max(k * 2, 12),
+            )
             if not retrieved:
                 return _base_answer("전략적 의사결정 분석 근거가 부족합니다. 대상 회사를 명시하거나 인덱스를 갱신해 주세요.", company_name=company_name), []
             detail = self._strategic_decision_simple_template(company_name, question, retrieved)
@@ -1131,6 +1156,107 @@ JSON 스키마:
             file_prefix="ai_company_search",
             provider_label=f"AI Provider: {provider}",
         )
+
+    def register_ai_template_result(
+        self,
+        query: str,
+        provider: str,
+        template_id: str,
+        template_name: str,
+        company_name: str,
+        answer_text: str,
+        answer_json: dict[str, Any] | None,
+        approved_by: str,
+    ) -> dict[str, Any]:
+        root = Path(__file__).resolve().parents[2]
+        raw_dir = root / "data" / "raw"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+
+        tid = str(template_id or "").strip().lower() or "company_overview"
+        tname = str(template_name or "").strip() or tid
+        cname = str(company_name or "").strip()
+        text_body = str(answer_text or "").strip()
+        payload_json = answer_json if isinstance(answer_json, dict) else {}
+
+        if not cname and isinstance(payload_json, dict):
+            cname = str(payload_json.get("company_name") or "").strip()
+        if not cname:
+            cname = self._extract_company_from_query(query) or "정보 부족"
+        if not text_body:
+            text_body = self.to_korean_readable(payload_json) if payload_json else "정보 부족"
+
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        file_path = raw_dir / f"ai_template_result_{provider}_{tid}_{ts}.json"
+        payload = {
+            "source_layer": "ai",
+            "source_type": "ai_template_result",
+            "provider": provider,
+            "query": query,
+            "template_id": tid,
+            "template_name": tname,
+            "company_name": cname,
+            "answer_text": text_body,
+            "answer_json": payload_json,
+            "approved": True,
+            "approved_by": approved_by,
+            "collected_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        }
+        file_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        index_path = Path(settings.index_path)
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        next_idx = 0
+        if index_path.exists():
+            try:
+                with index_path.open("r", encoding="utf-8") as r:
+                    for line in r:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        row = json.loads(line)
+                        rid = str(row.get("id") or "")
+                        if rid.startswith(file_path.stem + ":"):
+                            part = rid.split(":")[-1]
+                            if part.isdigit():
+                                next_idx = max(next_idx, int(part) + 1)
+            except (OSError, json.JSONDecodeError):
+                next_idx = 0
+
+        body_json_text = json.dumps(payload_json, ensure_ascii=False) if payload_json else "{}"
+        vector_text = (
+            f"회사명: {cname}\n"
+            f"템플릿 ID: {tid}\n"
+            f"템플릿명: {tname}\n"
+            f"질의: {query}\n"
+            f"AI Provider: {provider}\n"
+            f"템플릿 결과:\n{text_body}\n"
+            f"원본 JSON: {body_json_text}"
+        )
+        add_rows: list[dict[str, Any]] = []
+        for ch in self._chunk_text_for_index(vector_text):
+            emb = self.client.embed(settings.ollama_embed_model, ch)
+            add_rows.append(
+                {
+                    "id": f"{file_path.stem}:{next_idx}",
+                    "company": cname,
+                    "market": str(payload_json.get("market") or "정보 부족"),
+                    "source": str(file_path),
+                    "text": ch,
+                    "embedding": emb,
+                    "source_layer": "ai",
+                    "source_type": "ai_template_result",
+                    "approved": True,
+                    "approved_by": approved_by,
+                }
+            )
+            next_idx += 1
+
+        with index_path.open("a", encoding="utf-8") as w:
+            for row in add_rows:
+                w.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+        self.reload_index()
+        return {"ok": True, "added_chunks": len(add_rows), "source": str(file_path)}
 
     def register_internet_company_results(
         self,
