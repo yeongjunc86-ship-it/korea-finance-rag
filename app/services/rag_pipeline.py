@@ -285,6 +285,66 @@ class RagPipeline:
                 "similar_companies_detail": similar_rows,
             }
 
+        def _merge_rows(primary: list[dict[str, Any]], secondary: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+            merged: list[dict[str, Any]] = []
+            seen: set[tuple[str, str, str]] = set()
+            for row in list(primary) + list(secondary):
+                if not isinstance(row, dict):
+                    continue
+                key = (
+                    str(row.get("source") or ""),
+                    str(row.get("company") or ""),
+                    str(row.get("text") or ""),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(row)
+                if len(merged) >= limit:
+                    break
+            return merged
+
+        def _company_support_rows(company_name: str, limit: int = 6) -> list[dict[str, Any]]:
+            if not company_name or company_name == "정보 부족":
+                return []
+            aliases = self._company_alias_candidates(company_name)
+            support_q = (
+                f"{company_name} 회사 개요, 사업부 구조, 매출/영업이익 5년 추이, "
+                "EBITDA, 시가총액, 경쟁사, 핵심 리스크, 최근 주요 공시"
+            )
+            semantic_rows = self._retrieve_for_company_query(
+                company_name,
+                support_q,
+                top_k=max(8, limit * 2),
+                allow_fallback=True,
+            )
+
+            # 보완 검색: AI 등록 벡터가 회사명으로 저장된 경우 템플릿별 편차 없이 함께 반영한다.
+            ai_rows: list[dict[str, Any]] = []
+            if aliases:
+                for row in self._chunks:
+                    if not bool(row.get("approved", True)):
+                        continue
+                    if self._source_layer_of_row(row) != "ai":
+                        continue
+                    rc = self._normalize_company_name(str(row.get("company") or ""))
+                    rt = self._normalize_company_name(str(row.get("text") or ""))
+                    if not any((a in rc) or (rc and rc in a) or (a in rt) for a in aliases):
+                        continue
+                    ai_rows.append(
+                        {
+                            "score": 0.0,
+                            "company": row.get("company"),
+                            "market": row.get("market"),
+                            "source": row.get("source"),
+                            "text": str(row.get("text") or "")[:600],
+                        }
+                    )
+                    if len(ai_rows) >= max(2, limit // 2):
+                        break
+
+            return _merge_rows(semantic_rows, ai_rows, limit=max(4, limit))
+
         if template_id == self.ENTRY_TEMPLATE_TARGET_OVERVIEW:
             company_hint = self._extract_company_from_query(question)
             if not company_hint and similar_rows:
@@ -293,6 +353,7 @@ class RagPipeline:
                 retrieved = self._retrieve_for_company_query(company_hint, question, top_k=k, allow_fallback=False)
             else:
                 retrieved = self.retrieve(question, top_k=k)
+            retrieved = _merge_rows(retrieved, _company_support_rows(company_hint or "", limit=max(4, k // 2)), limit=max(k, 8))
             if not retrieved:
                 msg = "질문에 필요한 근거를 찾지 못했습니다. 먼저 데이터를 수집하고 인덱스를 생성해 주세요."
                 if company_hint:
@@ -304,6 +365,7 @@ class RagPipeline:
             detail = self._target_overview_simple_template(company_hint or "정보 부족", question, retrieved)
             answer = _base_answer(str(detail.get("summary") or "정보 부족"), company_name=company_hint or "정보 부족")
             answer.update(detail)
+            answer["sources"] = self._dedup_sources(retrieved)
             answer["similar_companies"] = similar_names
             answer["similar_companies_detail"] = similar_rows
             if company_hint:
@@ -326,10 +388,12 @@ class RagPipeline:
         if template_id == self.ENTRY_TEMPLATE_INDUSTRY_MARKET:
             industry_name = self._extract_industry_from_query(question) or "정보 부족"
             retrieved = self._retrieve_for_industry_query(industry_name if industry_name != "정보 부족" else question, question, top_k=k)
+            company_hint = self._extract_company_from_query(question) or (similar_names[0] if similar_names else "")
+            retrieved = _merge_rows(retrieved, _company_support_rows(company_hint, limit=max(4, k // 2)), limit=max(k, 8))
             if not retrieved:
                 return _base_answer("산업/시장 분석 근거가 부족합니다. 인덱스를 갱신하거나 산업명을 더 구체화해 주세요."), []
             detail = self._industry_market_simple_template(industry_name, question, retrieved)
-            company_hint = self._extract_company_from_query(question) or (similar_names[0] if similar_names else "정보 부족")
+            company_hint = company_hint or "정보 부족"
             answer = _base_answer(str(detail.get("summary") or "정보 부족"), company_name=company_hint)
             if company_hint != "정보 부족":
                 cm = self._company_master_item(company_hint)
@@ -342,6 +406,7 @@ class RagPipeline:
             answer["industry_name"] = industry_name
             answer["highlights"] = [f"분석 대상 산업: {industry_name}"]
             answer.update(detail)
+            answer["sources"] = self._dedup_sources(retrieved)
             return answer, retrieved
 
         if template_id == self.ENTRY_TEMPLATE_VALUATION:
@@ -349,6 +414,7 @@ class RagPipeline:
             retrieved = (
                 self._retrieve_for_company_query(company_name, question, top_k=k) if company_name != "정보 부족" else self.retrieve(question, top_k=k)
             )
+            retrieved = _merge_rows(retrieved, _company_support_rows(company_name, limit=max(4, k // 2)), limit=max(k, 8))
             if not retrieved:
                 return _base_answer("밸류에이션 분석 근거가 부족합니다. 대상 회사를 명시하거나 인덱스를 갱신해 주세요.", company_name=company_name), []
             detail = self._valuation_simple_template(company_name, question, retrieved)
@@ -360,6 +426,7 @@ class RagPipeline:
                 company_hint=company_name if company_name != "정보 부족" else None,
                 question=question,
             )
+            answer["sources"] = self._dedup_sources(retrieved)
             return answer, retrieved
 
         if template_id == self.ENTRY_TEMPLATE_SYNERGY_PAIR:
@@ -401,6 +468,7 @@ class RagPipeline:
             retrieved = (
                 self._retrieve_for_company_query(company_name, question, top_k=k) if company_name != "정보 부족" else self.retrieve(question, top_k=k)
             )
+            retrieved = _merge_rows(retrieved, _company_support_rows(company_name, limit=max(4, k // 2)), limit=max(k, 8))
             if not retrieved:
                 return _base_answer("리스크/실사 분석 근거가 부족합니다. 대상 회사를 명시하거나 인덱스를 갱신해 주세요.", company_name=company_name), []
             detail = self._due_diligence_simple_template(company_name, question, retrieved)
@@ -412,6 +480,7 @@ class RagPipeline:
                 company_hint=company_name if company_name != "정보 부족" else None,
                 question=question,
             )
+            answer["sources"] = self._dedup_sources(retrieved)
             return answer, retrieved
 
         if template_id == self.ENTRY_TEMPLATE_STRATEGIC_DECISION:
@@ -419,6 +488,7 @@ class RagPipeline:
             retrieved = (
                 self._retrieve_for_company_query(company_name, question, top_k=k) if company_name != "정보 부족" else self.retrieve(question, top_k=k)
             )
+            retrieved = _merge_rows(retrieved, _company_support_rows(company_name, limit=max(4, k // 2)), limit=max(k, 8))
             if not retrieved:
                 return _base_answer("전략적 의사결정 분석 근거가 부족합니다. 대상 회사를 명시하거나 인덱스를 갱신해 주세요.", company_name=company_name), []
             detail = self._strategic_decision_simple_template(company_name, question, retrieved)
@@ -430,6 +500,7 @@ class RagPipeline:
                 company_hint=company_name if company_name != "정보 부족" else None,
                 question=question,
             )
+            answer["sources"] = self._dedup_sources(retrieved)
             return answer, retrieved
 
         return _base_answer("템플릿 분류 결과를 처리할 수 없습니다. 다시 질문해 주세요."), []
@@ -4113,19 +4184,24 @@ JSON 스키마:
             lines = [
                 "업체명: 정보 부족",
                 f"[기본 템플릿: {template_name} ({template_id})]",
-                "회사 식별 불가: 업체명이 확인되지 않아 내부 정보를 사용할 수 없습니다.",
-                "회사 개요: 정보 부족",
-                "사업부 구조: 정보 부족",
-                "매출/영업이익 5년 추이: 정보 부족",
-                "EBITDA: 정보 부족",
-                "시가총액: 정보 부족",
-                "경쟁사: 정보 부족",
-                "핵심 리스크: 정보 부족",
-                "최근 주요 공시: 정보 부족",
-                "요약: 업체명 확인 후 다시 질의해 주세요.",
-                "핵심 포인트: 정보 부족",
-                "재무 스냅샷: 시가총액 정보 부족, 매출 정보 부족, 영업이익 정보 부족, 순이익 정보 부족",
-                "유사 기업: 정보 부족",
+                "1.1 회사 식별",
+                "- 상태: 업체명이 확인되지 않아 내부 정보를 사용할 수 없습니다.",
+                "1.2 기업 개요",
+                "- 회사 개요: 정보 부족",
+                "- 사업부 구조: 정보 부족",
+                "1.3 재무 요약",
+                "- 매출/영업이익 5년 추이: 정보 부족",
+                "- EBITDA: 정보 부족",
+                "- 시가총액: 정보 부족",
+                "- 재무 스냅샷: 시가총액 정보 부족, 매출 정보 부족, 영업이익 정보 부족, 순이익 정보 부족",
+                "1.4 경쟁/리스크",
+                "- 경쟁사: 정보 부족",
+                "- 핵심 리스크: 정보 부족",
+                "- 최근 주요 공시: 정보 부족",
+                "- 유사 기업: 정보 부족",
+                "1.5 요약",
+                "- 요약: 업체명 확인 후 다시 질의해 주세요.",
+                "- 핵심 포인트: 정보 부족",
                 "출처: 정보 부족",
             ]
             return "\n".join(lines)
@@ -4154,20 +4230,24 @@ JSON 스키마:
         lines = [
             f"업체명: {name}",
             f"[기본 템플릿: {template_name} ({template_id})]",
-            f"{name}은(는) {market} 시장에 속한 기업입니다.",
-            f"회사 개요: {company_overview}",
-            f"사업부 구조: {business_structure}",
-            f"매출/영업이익 5년 추이: {rev_op_trend}",
-            f"EBITDA: {ebitda}",
-            f"시가총액: {market_cap_top if market_cap_top != '정보 부족' else market_cap}",
-            "경쟁사: " + (", ".join(str(x) for x in competitors) if competitors else "정보 부족"),
-            "핵심 리스크: " + (", ".join(str(x) for x in key_risks) if key_risks else "정보 부족"),
-            "최근 주요 공시: " + (", ".join(str(x) for x in recent_disclosures) if recent_disclosures else "정보 부족"),
-            f"요약: {summary}",
-            "핵심 포인트: " + (", ".join(str(x) for x in highlights) if highlights else "정보 부족"),
-            "재무 스냅샷: "
+            "1.1 기업 개요",
+            f"- 시장: {market}",
+            f"- 회사 개요: {company_overview}",
+            f"- 사업부 구조: {business_structure}",
+            "1.2 재무 요약",
+            f"- 매출/영업이익 5년 추이: {rev_op_trend}",
+            f"- EBITDA: {ebitda}",
+            f"- 시가총액: {market_cap_top if market_cap_top != '정보 부족' else market_cap}",
+            "- 재무 스냅샷: "
             f"시가총액 {market_cap}, 매출 {revenue}, 영업이익 {op_income}, 순이익 {net_income}",
-            "유사 기업: " + (", ".join(str(x) for x in similar) if similar else "정보 부족"),
+            "1.3 경쟁/리스크",
+            "- 경쟁사: " + (", ".join(str(x) for x in competitors) if competitors else "정보 부족"),
+            "- 핵심 리스크: " + (", ".join(str(x) for x in key_risks) if key_risks else "정보 부족"),
+            "- 최근 주요 공시: " + (", ".join(str(x) for x in recent_disclosures) if recent_disclosures else "정보 부족"),
+            "- 유사 기업: " + (", ".join(str(x) for x in similar) if similar else "정보 부족"),
+            "1.4 요약",
+            f"- 분석 요약: {summary}",
+            "- 핵심 포인트: " + (", ".join(str(x) for x in highlights) if highlights else "정보 부족"),
             "출처: " + (", ".join(str(x) for x in sources) if sources else "정보 부족"),
         ]
         return "\n".join(lines)
