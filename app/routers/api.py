@@ -591,9 +591,34 @@ def admin_run_task(req: AdminTaskRequest, request: Request) -> dict:
         return {"ok": True, "task": req.task, "chunk_count": count}
 
     result = admin_service.run_task(req.task, req.options or {})
-    if req.task in {"full_index", "incremental_index"} and result.get("ok"):
-        pipeline.reload_index()
+    if req.task in {"full_index", "incremental_index", "fetch_disclosure_bulk"} and result.get("ok"):
+        count = pipeline.reload_index()
+        result["chunk_count"] = count
+        result["reloaded"] = True
     return result
+
+
+@router.post("/admin/disclosure/start")
+def admin_disclosure_start(request: Request) -> dict:
+    _require_admin(request)
+    return admin_service.start_disclosure_bulk({})
+
+
+@router.get("/admin/disclosure/status")
+def admin_disclosure_status(request: Request) -> dict:
+    _require_admin(request)
+    out = admin_service.disclosure_bulk_status()
+    if out.get("ok") and (not out.get("running")) and int(out.get("return_code") or -1) == 0:
+        # Ensure in-memory index reflects completed disclosure collection.
+        out["chunk_count"] = pipeline.reload_index()
+        out["reloaded"] = True
+    return out
+
+
+@router.post("/admin/disclosure/stop")
+def admin_disclosure_stop(request: Request) -> dict:
+    _require_admin(request)
+    return admin_service.stop_disclosure_bulk()
 
 
 @router.get("/admin/company-search-settings", response_model=CompanySearchSettingsResponse)

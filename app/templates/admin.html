@@ -42,257 +42,25 @@
     </section>
 
     <section class="card">
-      <h2>운영 작업</h2>
-
-      <h3>데이터 수집</h3>
-      <div class="row wrap">
-        <button data-task="fetch_dart_bulk" class="task-btn">DART 대량 수집</button>
-        <button data-task="fetch_news" class="task-btn">최신 뉴스 수집</button>
-        <button data-task="fetch_dart_financials" class="task-btn">DART 재무(5Y) 수집</button>
-        <button data-task="import_customer_dependency_external" class="task-btn">고객의존도 외부 Import</button>
-        <button data-task="import_customer_dependency_reports" class="task-btn">고객의존도 보고서 Import</button>
-        <button data-task="extract_customer_dependency_llm" class="task-btn">고객의존도 LLM 추출</button>
-      </div>
-
-      <h3>데이터 빌드</h3>
-      <div class="row wrap">
-        <button data-task="normalize_manifest" class="task-btn">매니페스트 정규화</button>
-        <button data-task="parse_dart_notes" class="task-btn">DART 주석 파싱</button>
-        <button data-task="build_company_master" class="task-btn">회사 마스터 생성</button>
-        <button data-task="build_company_financials_5y" class="task-btn">5개년 재무 팩트 생성</button>
-        <button data-task="build_customer_dependency" class="task-btn">고객의존도 프로파일 생성</button>
-        <button data-task="industry_special_pipeline" class="task-btn">산업(13/16/19) 데이터 생성</button>
-        <button data-task="build_valuation_cases" class="task-btn">밸류에이션 케이스 생성</button>
-        <button data-task="build_synergy_cases" class="task-btn">시너지 케이스 생성</button>
-        <button data-task="build_due_diligence_cases" class="task-btn">실사 케이스 생성</button>
-        <button data-task="build_strategic_cases" class="task-btn">전략 케이스 생성</button>
-        <button data-task="external_enrichment" class="task-btn">외부 데이터 병합</button>
-      </div>
-
-      <h3>적용/운영</h3>
-      <div class="row wrap">
-        <button data-task="sync_index_state" class="task-btn">인덱스 상태 동기화</button>
-        <button data-task="incremental_index" class="task-btn">새 데이터 만들기</button>
-        <button data-task="reload_index" class="task-btn">서비스 반영하기</button>
-        <button data-task="full_index" class="task-btn danger">인덱스 전체 재생성</button>
-        <button data-task="eval_baseline" class="task-btn">기준 평가 실행</button>
-        <button data-task="eval_target_analysis" class="task-btn">타겟 10문항 평가</button>
-        <button data-task="eval_valuation_analysis" class="task-btn">밸류 10문항 평가</button>
-        <button data-task="eval_synergy_analysis" class="task-btn">시너지 10문항 평가</button>
-        <button data-task="eval_due_diligence_analysis" class="task-btn">실사 10문항 평가</button>
-        <button data-task="eval_strategic_analysis" class="task-btn">전략 10문항 평가</button>
-      </div>
-      <p class="muted">주의: 전체 인덱스 실행은 시간이 오래 걸릴 수 있습니다.</p>
+      <h2>대상 회사</h2>
       <div class="row wrap">
         <label>
-          대상 회사(공통, 쉼표)
+          대상 회사(쉼표 구분)
           <input id="commonCompanies" type="text" value="" placeholder="예: BYC, 삼성전자, 001460.KS" />
         </label>
       </div>
+      <p class="muted">대량 수집을 제외한 작업은 대상 회사 기준으로 수행합니다.</p>
+    </section>
 
-      <h3>DART 대량 수집 옵션</h3>
+    <section class="card">
+      <h2>공시 데이터 대량 수집</h2>
       <div class="row wrap">
-        <label>
-          요청 간 대기(초)
-          <input id="dartBulkSleep" type="number" min="0" max="5" step="0.05" value="0.25" />
-        </label>
-        <label>
-          이어받기(resume)
-          <input id="dartBulkResume" type="checkbox" checked />
-        </label>
+        <button id="disclosureStartBtn" type="button">실행</button>
+        <button id="disclosureStopBtn" class="ghost-btn" type="button">중지</button>
       </div>
-
-      <h3>뉴스 수집 옵션</h3>
-      <div class="row wrap">
-        <label>
-          대상 기업 수
-          <input id="newsLimitCompany" type="number" min="1" max="5000" value="300" />
-        </label>
-        <label>
-          기업당 뉴스 수
-          <input id="newsPerCompany" type="number" min="1" max="20" value="3" />
-        </label>
-        <label>
-          요청 간 대기(초)
-          <input id="newsSleep" type="number" min="0" max="5" step="0.05" value="0.2" />
-        </label>
-        <label>
-          이어받기(resume)
-          <input id="newsResume" type="checkbox" checked />
-        </label>
-      </div>
-
-      <h3>DART 재무 수집 옵션</h3>
-      <div class="row wrap">
-        <label>
-          최근 연도 수
-          <input id="dartFinancialYears" type="number" min="1" max="10" value="5" />
-        </label>
-        <label>
-          요청 간 대기(초)
-          <input id="dartFinancialSleep" type="number" min="0" max="5" step="0.05" value="0.25" />
-        </label>
-        <label>
-          재무구분
-          <select id="dartFinancialFsDiv">
-            <option value="CFS" selected>CFS (연결)</option>
-            <option value="OFS">OFS (별도)</option>
-          </select>
-        </label>
-        <label>
-          이어받기(resume)
-          <input id="dartFinancialResume" type="checkbox" checked />
-        </label>
-      </div>
-
-      <h3>5개년 재무 팩트 옵션</h3>
-      <div class="row wrap">
-        <label>
-          최소 연도 수
-          <input id="financial5yMinYears" type="number" min="1" max="5" value="3" />
-        </label>
-        <label>
-          raw 문서 생성
-          <input id="financial5yWriteRaw" type="checkbox" checked />
-        </label>
-      </div>
-
-      <h3>고객의존도 옵션</h3>
-      <div class="row wrap">
-        <label>
-          외부 CSV 경로
-          <input id="customerDependencyCsv" type="text" value="data/external/customer_dependency.csv" />
-        </label>
-        <label>
-          보고서 폴더 경로
-          <input id="customerDependencyReportDir" type="text" value="data/external/customer_reports" />
-        </label>
-        <label>
-          최소 고객 수
-          <input id="customerDependencyMinCustomers" type="number" min="0" max="10" value="1" />
-        </label>
-        <label>
-          raw 문서 생성
-          <input id="customerDependencyWriteRaw" type="checkbox" checked />
-        </label>
-        <label>
-          이어받기(resume)
-          <input id="customerDependencyResume" type="checkbox" checked />
-        </label>
-      </div>
-      <div class="row wrap">
-        <label>
-          LLM Provider
-          <select id="customerDependencyLlmProvider">
-            <option value="openai" selected>openai</option>
-            <option value="gemini">gemini</option>
-          </select>
-        </label>
-        <label>
-          LLM Model(선택)
-          <input id="customerDependencyLlmModel" type="text" value="" placeholder="기본 모델 자동" />
-        </label>
-        <label>
-          LLM 대상 회사 수
-          <input id="customerDependencyLlmLimit" type="number" min="1" max="5000" value="50" />
-        </label>
-        <label>
-          최소 신뢰도
-          <input id="customerDependencyLlmMinConfidence" type="number" min="0" max="1" step="0.05" value="0.3" />
-        </label>
-        <label>
-          문맥 없어도 실행
-          <input id="customerDependencyAllowEmptyContext" type="checkbox" />
-        </label>
-      </div>
-
-      <h3>기준 평가 옵션</h3>
-      <div class="row wrap">
-        <label>
-          평가 건수(limit)
-          <input id="evalLimit" type="number" min="1" max="500" value="20" />
-        </label>
-      </div>
-
-      <h3>산업(13/16/19) 데이터 옵션</h3>
-      <div class="row wrap">
-        <label>
-          산업 목록(쉼표)
-          <input id="industryList" type="text" value="반도체,바이오,2차전지,자동차,방산,조선,클라우드,에너지" />
-        </label>
-        <label>
-          최소 표본 수
-          <input id="industryMinSamples" type="number" min="1" max="20" value="3" />
-        </label>
-        <label>
-          TAM 배수
-          <input id="industryTamMultiplier" type="number" min="0.1" max="20" step="0.1" value="2.0" />
-        </label>
-        <label>
-          SAM 비율
-          <input id="industrySamRatio" type="number" min="0.01" max="1" step="0.01" value="0.35" />
-        </label>
-        <label>
-          SOM 비율
-          <input id="industrySomRatio" type="number" min="0.01" max="1" step="0.01" value="0.1" />
-        </label>
-      </div>
-
-      <h3>외부 데이터 옵션</h3>
-      <div class="row wrap">
-        <label>
-          외부 데이터 폴더
-          <input id="externalDir" type="text" value="data/external" />
-        </label>
-      </div>
-
-      <h3>업체검색 AI 연동 설정</h3>
-      <div class="row wrap">
-        <label>
-          OpenAI 사용
-          <input id="companySearchEnableOpenai" type="checkbox" checked />
-        </label>
-        <label>
-          Gemini 사용
-          <input id="companySearchEnableGemini" type="checkbox" checked />
-        </label>
-      </div>
-      <div class="row wrap">
-        <button id="saveCompanySearchSettingsBtn" type="button">업체검색 설정 저장</button>
-      </div>
-
-      <h3>AI 업체검색 (운영)</h3>
-      <div class="row wrap">
-        <label>
-          검색 프롬프트
-          <textarea id="adminAiSearchPrompt" rows="4" placeholder="예: 반도체 배관설비 업체 매각 후보 유추"></textarea>
-        </label>
-      </div>
-      <div class="row wrap">
-        <label>
-          TXT 파일 첨부
-          <input id="adminAiSearchTxtFile" type="file" accept=".txt" />
-        </label>
-        <label>
-          결과 개수
-          <input id="adminAiSearchTopK" type="number" min="1" max="30" value="10" />
-        </label>
-      </div>
-      <div class="row wrap">
-        <button id="adminAiSearchRunBtn" type="button">AI 업체검색 실행</button>
-        <button id="adminAiSearchRegisterBtn" type="button">AI 결과 DB 등록</button>
-      </div>
-      <div class="split-grid">
-        <section class="card">
-          <h4>AI 검색 결과</h4>
-          <pre id="adminAiSearchResultView">아직 요청 없음</pre>
-        </section>
-        <section class="card">
-          <h4>AI 프롬프트/원본 응답</h4>
-          <pre id="adminAiSearchPromptView">아직 요청 없음</pre>
-          <pre id="adminAiSearchRawView">아직 요청 없음</pre>
-        </section>
-      </div>
+      <label for="disclosureProgressBar">진행률</label>
+      <progress id="disclosureProgressBar" max="100" value="0" style="width: 100%;"></progress>
+      <pre id="disclosureStatusView">아직 실행 없음</pre>
     </section>
 
     <section class="card">
@@ -300,16 +68,7 @@
       <button id="refreshBtn">새로고침</button>
       <pre id="statusView">로딩 중...</pre>
     </section>
-
-    <section class="card">
-      <h2>작업 결과</h2>
-      <div class="row">
-        <button id="exportTxtBtn" type="button">TXT 다운로드</button>
-        <button id="exportPdfBtn" type="button">PDF 저장</button>
-      </div>
-      <pre id="taskView">아직 실행 없음</pre>
-    </section>
   </main>
-  <script src="/static/admin.js?v=20260218a"></script>
+  <script src="/static/admin.js?v=20260218c"></script>
 </body>
 </html>

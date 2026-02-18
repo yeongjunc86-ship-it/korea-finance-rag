@@ -4,6 +4,7 @@ import shlex
 import subprocess
 import json
 import re
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -120,6 +121,7 @@ def _file_meta(path: Path) -> dict[str, Any]:
 
 def _task_raw_glob_patterns(task: str) -> list[str]:
     mapping: dict[str, list[str]] = {
+        "fetch_disclosure_bulk": ["yahoo_*.json", "dart_*.json"],
         "fetch_dart_bulk": ["dart_*.json"],
         "fetch_dart_financials": ["dart_financials_*.json"],
         "fetch_news": ["news_*.json"],
@@ -363,6 +365,10 @@ def _build_interpretation_notes(previews: list[dict[str, Any]]) -> list[str]:
 
 
 class DataAdminService:
+    def __init__(self) -> None:
+        self._disclosure_proc: subprocess.Popen[str] | None = None
+        self._disclosure_meta: dict[str, Any] = {}
+
     def status(self, health_meta: dict[str, Any]) -> dict[str, Any]:
         RAW_DIR.mkdir(parents=True, exist_ok=True)
         PROC_DIR.mkdir(parents=True, exist_ok=True)
@@ -468,6 +474,119 @@ class DataAdminService:
             },
         }
 
+    def start_disclosure_bulk(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
+        opts = options or {}
+        if self._disclosure_proc is not None and self._disclosure_proc.poll() is None:
+            return {"ok": False, "error": "이미 공시 데이터 대량 수집이 실행 중입니다."}
+
+        try:
+            yahoo_sleep = float(opts.get("yahoo_sleep", 0.15))
+            dart_sleep = float(opts.get("dart_sleep", 0.25))
+            yahoo_limit = int(opts.get("yahoo_limit", 0))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "옵션 형식이 올바르지 않습니다."}
+        resume = _as_bool(opts.get("resume"), default=True)
+
+        if yahoo_sleep < 0 or yahoo_sleep > 5:
+            return {"ok": False, "error": "yahoo_sleep must be between 0 and 5"}
+        if dart_sleep < 0 or dart_sleep > 5:
+            return {"ok": False, "error": "dart_sleep must be between 0 and 5"}
+        if yahoo_limit < 0 or yahoo_limit > 50000:
+            return {"ok": False, "error": "yahoo_limit must be between 0 and 50000"}
+
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        log_path = LOG_DIR / f"disclosure_bulk_{ts}.log"
+        cmd = [
+            "env",
+            f"YAHOO_SLEEP={yahoo_sleep}",
+            f"DART_SLEEP={dart_sleep}",
+            f"YAHOO_LIMIT={yahoo_limit}",
+            f"RESUME={1 if resume else 0}",
+            "./scripts/run_disclosure_collection.sh",
+        ]
+
+        logf = log_path.open("w", encoding="utf-8")
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(ROOT_DIR),
+            stdout=logf,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        self._disclosure_proc = proc
+        self._disclosure_meta = {
+            "started_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "started_ts": time.time(),
+            "log_path": str(log_path.relative_to(ROOT_DIR)),
+            "command": " ".join(shlex.quote(x) for x in cmd),
+        }
+        # Close parent handle; child keeps fd.
+        logf.close()
+        return {"ok": True, **self._disclosure_meta, "pid": proc.pid}
+
+    def disclosure_bulk_status(self) -> dict[str, Any]:
+        proc = self._disclosure_proc
+        meta = dict(self._disclosure_meta)
+        log_rel = str(meta.get("log_path") or "")
+        log_path = ROOT_DIR / log_rel if log_rel else None
+
+        tail = ""
+        if isinstance(log_path, Path) and log_path.exists():
+            try:
+                text = log_path.read_text(encoding="utf-8")
+                tail = "\n".join(text.splitlines()[-80:])
+            except OSError:
+                tail = ""
+
+        running = bool(proc is not None and proc.poll() is None)
+        rc = None if running else (proc.poll() if proc is not None else None)
+        elapsed = 0
+        if isinstance(meta.get("started_ts"), (int, float)):
+            elapsed = max(0, int(time.time() - float(meta["started_ts"])))
+
+        cur, total = self._parse_progress(tail)
+        pct = int((cur / total) * 100) if total > 0 else 0
+
+        return {
+            "ok": True,
+            "running": running,
+            "return_code": rc,
+            "elapsed_sec": elapsed,
+            "progress_current": cur,
+            "progress_total": total,
+            "progress_percent": pct,
+            "log_path": log_rel or None,
+            "log_tail": tail,
+            "started_at": meta.get("started_at"),
+            "command": meta.get("command"),
+        }
+
+    def stop_disclosure_bulk(self) -> dict[str, Any]:
+        proc = self._disclosure_proc
+        if proc is None or proc.poll() is not None:
+            return {"ok": False, "error": "실행 중인 공시 데이터 대량 수집 작업이 없습니다."}
+        proc.terminate()
+        try:
+            proc.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+        return {"ok": True, "stopped": True, "return_code": proc.returncode}
+
+    @staticmethod
+    def _parse_progress(text: str) -> tuple[int, int]:
+        if not text:
+            return 0, 0
+        matches = re.findall(r"\[(\d+)\s*/\s*(\d+)\]", text)
+        if not matches:
+            return 0, 0
+        a, b = matches[-1]
+        try:
+            return int(a), int(b)
+        except ValueError:
+            return 0, 0
+
     def run_task(self, task: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
         opts = options or {}
         company_filter = _resolve_company_filters(opts.get("companies"))
@@ -478,6 +597,29 @@ class DataAdminService:
         cmd: list[str] | None = None
         if task == "normalize_manifest":
             cmd = [".venv/bin/python", "scripts/normalize_manifest.py"]
+        elif task == "fetch_disclosure_bulk":
+            try:
+                yahoo_sleep = float(opts.get("yahoo_sleep", 0.15))
+                dart_sleep = float(opts.get("dart_sleep", 0.25))
+                yahoo_limit = int(opts.get("yahoo_limit", 0))
+            except (TypeError, ValueError):
+                return {"ok": False, "task": task, "error": "invalid option type for fetch_disclosure_bulk"}
+            resume = _as_bool(opts.get("resume"), default=True)
+            if yahoo_sleep < 0 or yahoo_sleep > 5:
+                return {"ok": False, "task": task, "error": "yahoo_sleep must be between 0 and 5"}
+            if dart_sleep < 0 or dart_sleep > 5:
+                return {"ok": False, "task": task, "error": "dart_sleep must be between 0 and 5"}
+            if yahoo_limit < 0 or yahoo_limit > 50000:
+                return {"ok": False, "task": task, "error": "yahoo_limit must be between 0 and 50000"}
+
+            cmd = [
+                "env",
+                f"YAHOO_SLEEP={yahoo_sleep}",
+                f"DART_SLEEP={dart_sleep}",
+                f"YAHOO_LIMIT={yahoo_limit}",
+                f"RESUME={1 if resume else 0}",
+                "./scripts/run_disclosure_collection.sh",
+            ]
         elif task == "fetch_dart_bulk":
             try:
                 sleep = float(opts.get("sleep", 0.25))
