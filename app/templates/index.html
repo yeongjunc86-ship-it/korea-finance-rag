@@ -25,41 +25,20 @@
       <textarea id="question" rows="4" placeholder="예: 신재생 에너지 사업 시너지를 위해 인수 검토할 국내 상장사 3곳을 리스크와 함께 요약해줘"></textarea>
       <div class="row wrap">
         <button id="runBtn">전략 분석 수행</button>
-        <button id="searchCompaniesBtn" type="button">업체 검색</button>
         <button id="clearBtn" class="ghost-btn" type="button">화면 초기화</button>
       </div>
     </section>
 
-    <div class="split-grid">
-      <section class="card">
-        <h2>기존 데이터 결과</h2>
-        <pre id="ownedCompanyResultView">아직 요청 없음</pre>
-      </section>
-      <section class="card">
-        <h2>AI 검색 결과</h2>
-        <div class="row">
-          <button id="registerAiToDbBtn" type="button">기존 데이터 추가</button>
-        </div>
-        <pre id="aiCompanyResultView">아직 요청 없음</pre>
-      </section>
-    </div>
-
     <section class="card">
-      <h2>유사 업체 리스트</h2>
-      <div id="peerGrid" class="peer-grid muted">아직 요청 없음</div>
+      <h2>기존 데이터 결과</h2>
+      <pre id="ownedCompanyResultView">아직 요청 없음</pre>
     </section>
 
-    <div class="split-grid">
-      <section class="card">
-        <h2>기존 데이터 유사 업체</h2>
-        <div id="ownedCompanyResultGrid" class="peer-grid muted">아직 요청 없음</div>
-      </section>
-      <section class="card">
-        <h2>AI 유사 업체</h2>
-        <div id="aiCompanyResultGrid" class="peer-grid muted">아직 요청 없음</div>
-      </section>
-    </div>
+    <section class="card">
+      <h2>유사 업체 리스트 (기존 데이터)</h2>
+      <div id="peerGrid" class="peer-grid muted">아직 요청 없음</div>
+    </section>
   </main>
-  <script src="/static/app.js?v=20260217b"></script>
+  <script src="/static/app.js?v=20260218a"></script>
 </body>
 </html>

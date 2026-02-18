@@ -233,9 +233,63 @@ def company_overview_search(req: CompanyOverviewSearchRequest):
     if not effective_query:
         effective_query = infer_query
 
-    local_answer, _ = pipeline.answer(effective_query, req.top_k)
+    # 검색 페이지는 항상 company_overview 템플릿으로 통일한다.
+    company_hint = inferred_company or pipeline._extract_company_from_query(effective_query) or ""
+    if company_hint:
+        local_retrieved = pipeline._retrieve_for_company_query(
+            company_hint, effective_query, top_k=req.top_k, allow_fallback=True
+        )
+    else:
+        local_retrieved = pipeline.retrieve(effective_query, top_k=req.top_k)
+
+    local_market = "정보 부족"
+    if company_hint:
+        cm = pipeline._company_master_item(company_hint)
+        if isinstance(cm, dict):
+            markets = cm.get("markets")
+            if isinstance(markets, list):
+                mk = next((str(x).upper() for x in markets if str(x).upper() in {"KOSPI", "KOSDAQ", "OTHER"}), "")
+                if mk:
+                    local_market = mk
+
+    local_answer: dict[str, Any] = {
+        "template_id": "company_overview",
+        "template_name": "기업 개요 분석",
+        "company_name": company_hint or "정보 부족",
+        "market": local_market,
+        "summary": "정보 부족",
+        "company_overview": "정보 부족",
+        "business_structure": "정보 부족",
+        "revenue_operating_income_5y_trend": "정보 부족",
+        "ebitda": "정보 부족",
+        "market_cap": "정보 부족",
+        "competitors": [],
+        "key_risks": [],
+        "recent_disclosures": [],
+        "highlights": [],
+        "financial_snapshot": {
+            "market_cap": "정보 부족",
+            "revenue": "정보 부족",
+            "operating_income": "정보 부족",
+            "net_income": "정보 부족",
+        },
+        "risks": [],
+        "sources": [],
+        "similar_companies": [str(r.get("company") or "").strip() for r in inferred_candidates if str(r.get("company") or "").strip()],
+        "similar_companies_detail": inferred_candidates,
+    }
+    if local_retrieved:
+        local_answer = pipeline._backfill_answer_from_evidence(
+            answer=local_answer,
+            retrieved=local_retrieved,
+            company_hint=company_hint or None,
+            question=effective_query,
+        )
+    local_answer = pipeline._sanitize_answer(local_answer, local_retrieved)
+    local_answer["template_id"] = "company_overview"
+    local_answer["template_name"] = "기업 개요 분석"
     local_text = pipeline.to_korean_readable(local_answer)
-    if not inferred_company and not prompt:
+    if not inferred_company and not prompt and not local_retrieved:
         local_text = (
             "업체명: 정보 부족\n"
             "[기본 템플릿: 기업 개요 분석 (company_overview)]\n"
@@ -244,35 +298,60 @@ def company_overview_search(req: CompanyOverviewSearchRequest):
     local_similar = inferred_candidates
 
     settings_payload = company_search_settings_service.load()
-    providers = ai_company_search_service.available_providers(settings_payload)
+    providers = ai_company_search_service.available_providers(settings_payload) if req.include_ai else []
     provider = providers[0] if providers else ""
     ai_answer: dict[str, Any] = {}
-    ai_text = "AI provider가 비활성화되었거나 API Key가 없어 결과를 생성하지 못했습니다."
+    ai_answer = {
+        "template_id": "company_overview",
+        "template_name": "기업 개요 분석",
+        "company_name": inferred_company or "정보 부족",
+        "market": "정보 부족",
+        "summary": "AI provider가 비활성화되었거나 API Key가 없어 결과를 생성하지 못했습니다.",
+        "company_overview": "정보 부족",
+        "business_structure": "정보 부족",
+        "revenue_operating_income_5y_trend": "정보 부족",
+        "ebitda": "정보 부족",
+        "market_cap": "정보 부족",
+        "competitors": [],
+        "key_risks": [],
+        "recent_disclosures": [],
+        "highlights": [],
+        "financial_snapshot": {
+            "market_cap": "정보 부족",
+            "revenue": "정보 부족",
+            "operating_income": "정보 부족",
+            "net_income": "정보 부족",
+        },
+        "risks": [],
+        "sources": [],
+        "similar_companies": [],
+    }
+    ai_text = pipeline.to_korean_readable(ai_answer)
     ai_error: str | None = None
     ai_prompt_used: str | None = None
+    source_text = txt[:7000] if txt else infer_query[:7000]
+    ai_query = (
+        "아래 원문을 바탕으로 회사를 유추하세요.\n"
+        "1) 먼저 후보 업체명을 3~5개 리스트로 만들고 confidence(0~100)와 근거를 붙이세요.\n"
+        "2) 그중 가장 가능성이 높은 1개를 selected_company로 선택하세요.\n"
+        "3) selected_company 기준으로 company_overview 템플릿을 채우세요.\n"
+        "4) 후보 업체명은 반드시 실제 한국 상장사/비상장사 고유명사로 적으세요. (가명/마스킹 금지)\n"
+        "5) 텍스트에 업체명이 직접 없어도 산업 단서(클린룸/UT배관/반도체/2차전지/식품, 매출 규모, 인력 구조)를 근거로 유추하세요.\n"
+        "6) 정말 유추 불가능할 때만 company_name='정보 부족'으로 두세요.\n\n"
+        f"[사용자 프롬프트]\n{prompt or '없음'}\n\n"
+        f"[원문 텍스트]\n{source_text}"
+    )
+    ai_prompt_used = ai_query
+
     if provider:
         try:
-            # Keep AI path independent from DB inferred company and enforce candidate-first reasoning.
-            source_text = txt[:7000] if txt else infer_query[:7000]
-            ai_query = (
-                "아래 원문을 바탕으로 회사를 유추하세요.\n"
-                "1) 먼저 후보 업체명을 3~5개 리스트로 만들고 confidence(0~100)와 근거를 붙이세요.\n"
-                "2) 그중 가장 가능성이 높은 1개를 selected_company로 선택하세요.\n"
-                "3) selected_company 기준으로 company_overview 템플릿을 채우세요.\n"
-                "4) 후보 업체명은 반드시 실제 한국 상장사/비상장사 고유명사로 적으세요. (가명/마스킹 금지)\n"
-                "5) 텍스트에 업체명이 직접 없어도 산업 단서(클린룸/UT배관/반도체/2차전지/식품, 매출 규모, 인력 구조)를 근거로 유추하세요.\n"
-                "6) 정말 유추 불가능할 때만 company_name='정보 부족'으로 두세요.\n\n"
-                f"[사용자 프롬프트]\n{prompt or '없음'}\n\n"
-                f"[원문 텍스트]\n{source_text}"
-            )
-            ai_prompt_used = ai_query
             ai_answer = ai_company_search_service.company_overview(provider, ai_query)
         except Exception as e:
             ai_answer = {}
-            ai_error = str(e)
+            ai_error = f"{provider}: {e}"
         if isinstance(ai_answer, dict) and ai_answer:
-            ai_answer.setdefault("template_id", "company_overview")
-            ai_answer.setdefault("template_name", "기업 개요 분석")
+            ai_answer["template_id"] = "company_overview"
+            ai_answer["template_name"] = "기업 개요 분석"
             ai_answer.setdefault("sources", [f"ai://{provider}"])
             selected = ai_answer.get("selected_company") if isinstance(ai_answer.get("selected_company"), dict) else {}
             sel_company = str(selected.get("company") or "").strip()
@@ -286,12 +365,27 @@ def company_overview_search(req: CompanyOverviewSearchRequest):
                 if sel_market:
                     ai_answer["market"] = sel_market
             elif not str(ai_answer.get("company_name") or "").strip():
-                ai_answer["company_name"] = "정보 부족"
+                ai_answer["company_name"] = inferred_company or "정보 부족"
+            ai_answer = pipeline._sanitize_answer(ai_answer, [])
+            ai_answer["template_id"] = "company_overview"
+            ai_answer["template_name"] = "기업 개요 분석"
             ai_text = pipeline.to_korean_readable(ai_answer)
         else:
-            ai_text = f"AI provider({provider}) 호출은 되었지만 유효한 템플릿 응답이 비어 있습니다."
-            if ai_error:
-                ai_text += f" 오류: {ai_error}"
+            ai_answer = pipeline._sanitize_answer(
+                {
+                    **ai_answer,
+                    "template_id": "company_overview",
+                    "template_name": "기업 개요 분석",
+                    "company_name": inferred_company or "정보 부족",
+                    "summary": (
+                        f"AI provider({provider}) 호출은 되었지만 유효한 템플릿 응답이 비어 있습니다."
+                        + (f" 오류: {ai_error}" if ai_error else "")
+                    ),
+                    "sources": [f"ai://{provider}"],
+                },
+                [],
+            )
+            ai_text = pipeline.to_korean_readable(ai_answer)
 
     inferred_rows = ai_answer.get("inferred_candidates") if isinstance(ai_answer.get("inferred_candidates"), list) else []
     ai_similar_names = ai_answer.get("similar_companies") if isinstance(ai_answer.get("similar_companies"), list) else []
@@ -358,6 +452,19 @@ def company_overview_search(req: CompanyOverviewSearchRequest):
                     "approved": False,
                 }
             )
+
+    # 검색 페이지에서 생성된 AI 결과는 즉시 벡터 DB(인덱스)에 반영해 재사용 가능하게 한다.
+    if provider and ai_similar:
+        try:
+            pipeline.register_ai_company_results(
+                query=effective_query,
+                provider=provider,
+                items=ai_similar,
+                approved_by="system:auto_company_overview_search",
+            )
+        except Exception:
+            # 저장 실패가 검색 응답을 깨뜨리면 안 되므로 best-effort로 처리한다.
+            pass
 
     return CompanyOverviewSearchResponse(
         query=effective_query,

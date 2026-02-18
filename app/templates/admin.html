@@ -260,6 +260,39 @@
       <div class="row wrap">
         <button id="saveCompanySearchSettingsBtn" type="button">업체검색 설정 저장</button>
       </div>
+
+      <h3>AI 업체검색 (운영)</h3>
+      <div class="row wrap">
+        <label>
+          검색 프롬프트
+          <textarea id="adminAiSearchPrompt" rows="4" placeholder="예: 반도체 배관설비 업체 매각 후보 유추"></textarea>
+        </label>
+      </div>
+      <div class="row wrap">
+        <label>
+          TXT 파일 첨부
+          <input id="adminAiSearchTxtFile" type="file" accept=".txt" />
+        </label>
+        <label>
+          결과 개수
+          <input id="adminAiSearchTopK" type="number" min="1" max="30" value="10" />
+        </label>
+      </div>
+      <div class="row wrap">
+        <button id="adminAiSearchRunBtn" type="button">AI 업체검색 실행</button>
+        <button id="adminAiSearchRegisterBtn" type="button">AI 결과 DB 등록</button>
+      </div>
+      <div class="split-grid">
+        <section class="card">
+          <h4>AI 검색 결과</h4>
+          <pre id="adminAiSearchResultView">아직 요청 없음</pre>
+        </section>
+        <section class="card">
+          <h4>AI 프롬프트/원본 응답</h4>
+          <pre id="adminAiSearchPromptView">아직 요청 없음</pre>
+          <pre id="adminAiSearchRawView">아직 요청 없음</pre>
+        </section>
+      </div>
     </section>
 
     <section class="card">
@@ -277,6 +310,6 @@
       <pre id="taskView">아직 실행 없음</pre>
     </section>
   </main>
-  <script src="/static/admin.js?v=20260216b"></script>
+  <script src="/static/admin.js?v=20260218a"></script>
 </body>
 </html>

@@ -201,6 +201,7 @@ class CompanyOverviewSearchRequest(BaseModel):
     prompt: str = Field(default="")
     top_k: int = Field(default=10, ge=1, le=30)
     txt_content: str | None = None
+    include_ai: bool = True
 
 
 class CompanyOverviewSearchResponse(BaseModel):

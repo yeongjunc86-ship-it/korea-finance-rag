@@ -15,6 +15,11 @@ class AiCompanySearchService:
         load_dotenv(root / ".env")
         self._openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
         self._gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        configured_openai_model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini"
+        self._openai_models = []
+        for m in [configured_openai_model, "gpt-4.1-mini", "gpt-4o-mini"]:
+            if m and m not in self._openai_models:
+                self._openai_models.append(m)
         configured_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
         # 최신 안정 모델 우선, 실패 시 순차 폴백
         self._gemini_models = []
@@ -89,32 +94,47 @@ class AiCompanySearchService:
     def _search_openai(self, query: str, top_k: int) -> list[dict[str, Any]]:
         if not self._openai_api_key:
             return []
-        resp = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self._openai_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "gpt-4o-mini",
-                "temperature": 0.2,
-                "messages": [
-                    {"role": "system", "content": "너는 기업 검색 분석 보조자다. 출력은 JSON만 허용된다."},
-                    {"role": "user", "content": self._json_prompt(query, top_k)},
-                ],
-            },
-            timeout=45,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        text = ""
-        choices = data.get("choices")
-        if isinstance(choices, list) and choices:
-            msg = choices[0].get("message") if isinstance(choices[0], dict) else None
-            text = str(msg.get("content") if isinstance(msg, dict) else "")
-        payload = self._safe_parse_json(text)
-        rows = payload.get("results") if isinstance(payload, dict) else []
-        return rows if isinstance(rows, list) else []
+        last_error: Exception | None = None
+        for model in self._openai_models:
+            try:
+                resp = requests.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self._openai_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "temperature": 0.2,
+                        "messages": [
+                            {"role": "system", "content": "너는 기업 검색 분석 보조자다. 출력은 JSON만 허용된다."},
+                            {"role": "user", "content": self._json_prompt(query, top_k)},
+                        ],
+                    },
+                    timeout=45,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                text = ""
+                choices = data.get("choices")
+                if isinstance(choices, list) and choices:
+                    msg = choices[0].get("message") if isinstance(choices[0], dict) else None
+                    text = str(msg.get("content") if isinstance(msg, dict) else "")
+                payload = self._safe_parse_json(text)
+                rows = payload.get("results") if isinstance(payload, dict) else []
+                return rows if isinstance(rows, list) else []
+            except requests.HTTPError as e:
+                last_error = e
+                status = e.response.status_code if e.response is not None else None
+                if status in {400, 404}:
+                    continue
+                raise
+            except Exception as e:
+                last_error = e
+                raise
+        if last_error:
+            raise last_error
+        return []
 
     def _search_gemini(self, query: str, top_k: int) -> list[dict[str, Any]]:
         if not self._gemini_api_key:
@@ -231,30 +251,45 @@ JSON 스키마:
     def _company_overview_openai(self, query: str) -> dict[str, Any]:
         if not self._openai_api_key:
             return {}
-        resp = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self._openai_api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "gpt-4o-mini",
-                "temperature": 0.2,
-                "messages": [
-                    {"role": "system", "content": "출력은 JSON 객체 하나만 허용된다."},
-                    {"role": "user", "content": self._company_overview_prompt(query)},
-                ],
-            },
-            timeout=45,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        text = ""
-        choices = data.get("choices")
-        if isinstance(choices, list) and choices:
-            msg = choices[0].get("message") if isinstance(choices[0], dict) else None
-            text = str(msg.get("content") if isinstance(msg, dict) else "")
-        return self._safe_parse_json(text)
+        last_error: Exception | None = None
+        for model in self._openai_models:
+            try:
+                resp = requests.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self._openai_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "temperature": 0.2,
+                        "messages": [
+                            {"role": "system", "content": "출력은 JSON 객체 하나만 허용된다."},
+                            {"role": "user", "content": self._company_overview_prompt(query)},
+                        ],
+                    },
+                    timeout=45,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                text = ""
+                choices = data.get("choices")
+                if isinstance(choices, list) and choices:
+                    msg = choices[0].get("message") if isinstance(choices[0], dict) else None
+                    text = str(msg.get("content") if isinstance(msg, dict) else "")
+                return self._safe_parse_json(text)
+            except requests.HTTPError as e:
+                last_error = e
+                status = e.response.status_code if e.response is not None else None
+                if status in {400, 404}:
+                    continue
+                raise
+            except Exception as e:
+                last_error = e
+                raise
+        if last_error:
+            raise last_error
+        return {}
 
     def _company_overview_gemini(self, query: str) -> dict[str, Any]:
         if not self._gemini_api_key:

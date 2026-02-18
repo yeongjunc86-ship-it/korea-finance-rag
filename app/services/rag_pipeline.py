@@ -24,6 +24,18 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
 class RagPipeline:
     ENTRY_TEMPLATE_COMPANY_OVERVIEW = "company_overview"
     ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW = "기업 개요 분석"
+    ENTRY_TEMPLATE_TARGET_OVERVIEW = "target_company_overview"
+    ENTRY_TEMPLATE_NAME_TARGET_OVERVIEW = "타겟 기업 개요 분석"
+    ENTRY_TEMPLATE_INDUSTRY_MARKET = "industry_market_analysis"
+    ENTRY_TEMPLATE_NAME_INDUSTRY_MARKET = "산업 및 시장 분석"
+    ENTRY_TEMPLATE_VALUATION = "valuation_analysis"
+    ENTRY_TEMPLATE_NAME_VALUATION = "밸류에이션 관련"
+    ENTRY_TEMPLATE_SYNERGY_PAIR = "synergy_pair_analysis"
+    ENTRY_TEMPLATE_NAME_SYNERGY_PAIR = "두 회사간 시너지 분석"
+    ENTRY_TEMPLATE_DUE_DILIGENCE_RISK = "due_diligence_risk_analysis"
+    ENTRY_TEMPLATE_NAME_DUE_DILIGENCE_RISK = "리스크 및 실사"
+    ENTRY_TEMPLATE_STRATEGIC_DECISION = "strategic_decision_analysis"
+    ENTRY_TEMPLATE_NAME_STRATEGIC_DECISION = "전략적 의사결정"
     ENTRY_TEMPLATE_ACQ_FEASIBILITY = "acquisition_feasibility"
     ENTRY_TEMPLATE_NAME_ACQ_FEASIBILITY = "인수 타당성 분석"
     ENTRY_TEMPLATE_PEER_LIST = "peer_list"
@@ -228,33 +240,24 @@ class RagPipeline:
     def answer(self, question: str, top_k: int | None = None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         k = top_k or settings.top_k
         template_id, template_name = self._classify_entry_template(question)
-        if template_id == self.ENTRY_TEMPLATE_PEER_LIST:
-            requested = max(5, self._extract_requested_top_k(question))
-            similar_rows = self.similar_companies(question, top_k=requested)
-            sources = self._dedup_sources_from_rows(similar_rows)
-            industry_definition = self._peer_industry_definition(question, similar_rows)
-            screening_conditions = self._peer_screening_conditions(question, requested)
-            listed_companies = self._peer_listed_companies(similar_rows)
-            unlisted_companies = self._peer_unlisted_companies(similar_rows)
-            revenue_ebitda_table = self._peer_revenue_ebitda_table(similar_rows)
-            multiple_table = self._peer_multiple_table(similar_rows)
-            answer = {
+        requested = max(5, self._extract_requested_top_k(question))
+        similar_rows = self.similar_companies(question, top_k=requested)
+        similar_names = [str(r.get("company") or "").strip() for r in similar_rows if str(r.get("company") or "").strip()]
+        sources = self._dedup_sources_from_rows(similar_rows)
+
+        def _base_answer(summary: str, company_name: str = "정보 부족", market: str = "정보 부족") -> dict[str, Any]:
+            return {
                 "template_id": template_id,
                 "template_name": template_name,
-                "company_name": self._extract_company_from_query(question) or "정보 부족",
-                "market": "정보 부족",
-                "summary": (
-                    f"질의를 유사 업체 리스트 템플릿으로 분류했습니다. "
-                    f"근거 기반으로 상위 {len(similar_rows)}개 유사 업체를 제시합니다."
-                    if similar_rows
-                    else "질의를 유사 업체 리스트 템플릿으로 분류했지만 충분한 근거를 찾지 못했습니다."
-                ),
-                "company_overview": "유사 업체 리스트 템플릿 응답",
+                "company_name": company_name,
+                "market": market,
+                "summary": summary,
+                "company_overview": summary,
                 "business_structure": "정보 부족",
                 "revenue_operating_income_5y_trend": "정보 부족",
                 "ebitda": "정보 부족",
                 "market_cap": "정보 부족",
-                "competitors": [str(r.get("company") or "").strip() for r in similar_rows if str(r.get("company") or "").strip()],
+                "competitors": similar_names[:5],
                 "key_risks": [],
                 "recent_disclosures": [],
                 "highlights": [],
@@ -266,169 +269,182 @@ class RagPipeline:
                 },
                 "risks": [],
                 "sources": sources,
-                "similar_companies": [str(r.get("company") or "").strip() for r in similar_rows if str(r.get("company") or "").strip()],
+                "similar_companies": similar_names,
                 "similar_companies_detail": similar_rows,
-                "industry_definition": industry_definition,
-                "screening_conditions": screening_conditions,
-                "listed_companies": listed_companies,
-                "unlisted_companies": unlisted_companies,
-                "revenue_ebitda_comparison": revenue_ebitda_table,
-                "multiple_comparison": multiple_table,
             }
-            retrieved = [
-                {
-                    "score": float(r.get("score") or 0.0),
-                    "company": r.get("company"),
-                    "market": r.get("market"),
-                    "source": r.get("source"),
-                    "text": str(r.get("reason") or "")[:600],
-                }
-                for r in similar_rows
-            ]
-            return self._sanitize_answer(answer, retrieved), retrieved
-        template_id = self.ENTRY_TEMPLATE_COMPANY_OVERVIEW
-        template_name = self.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW
 
-        company_hint = self._extract_company_from_query(question)
-        if company_hint:
-            retrieved = self._retrieve_for_company_query(company_hint, question, top_k=k, allow_fallback=False)
-        else:
-            retrieved = self.retrieve(question, top_k=k)
-        if not retrieved:
-            msg = "질문에 필요한 근거를 찾지 못했습니다. 먼저 데이터를 수집하고 인덱스를 생성해 주세요."
+        if template_id == self.ENTRY_TEMPLATE_TARGET_OVERVIEW:
+            company_hint = self._extract_company_from_query(question)
+            if not company_hint and similar_rows:
+                company_hint = str(similar_rows[0].get("company") or "").strip() or None
             if company_hint:
-                msg = (
-                    f"질문에서 감지한 대상 회사({company_hint})의 근거를 찾지 못했습니다. "
-                    "회사명 표기(예: 삼성전자/삼성전자(주)/005930)를 확인하거나 인덱스를 갱신해 주세요."
-                )
-            return {
-                "template_id": template_id,
-                "template_name": template_name,
-                "company_name": company_hint or "",
-                "market": "정보 부족",
-                "summary": msg,
-                "company_overview": msg,
-                "business_structure": "정보 부족",
-                "revenue_operating_income_5y_trend": "정보 부족",
-                "ebitda": "정보 부족",
-                "market_cap": "정보 부족",
-                "competitors": [],
-                "key_risks": [],
-                "recent_disclosures": [],
-                "highlights": [],
-                "financial_snapshot": {},
-                "risks": [],
-                "sources": [],
-                "similar_companies": [],
-            }, []
+                retrieved = self._retrieve_for_company_query(company_hint, question, top_k=k, allow_fallback=False)
+            else:
+                retrieved = self.retrieve(question, top_k=k)
+            if not retrieved:
+                msg = "질문에 필요한 근거를 찾지 못했습니다. 먼저 데이터를 수집하고 인덱스를 생성해 주세요."
+                if company_hint:
+                    msg = (
+                        f"질문에서 감지한 대상 회사({company_hint})의 근거를 찾지 못했습니다. "
+                        "회사명 표기(예: 삼성전자/삼성전자(주)/005930)를 확인하거나 인덱스를 갱신해 주세요."
+                    )
+                return _base_answer(msg, company_name=company_hint or "정보 부족"), []
+            detail = self._target_overview_simple_template(company_hint or "정보 부족", question, retrieved)
+            answer = _base_answer(str(detail.get("summary") or "정보 부족"), company_name=company_hint or "정보 부족")
+            answer.update(detail)
+            answer["similar_companies"] = similar_names
+            answer["similar_companies_detail"] = similar_rows
+            if company_hint:
+                answer["company_name"] = company_hint
+                cm = self._company_master_item(company_hint)
+                if isinstance(cm, dict):
+                    markets = cm.get("markets")
+                    if isinstance(markets, list):
+                        mk = next((str(x).upper() for x in markets if str(x).upper() in {"KOSPI", "KOSDAQ", "OTHER"}), "")
+                        if mk:
+                            answer["market"] = mk
+            answer = self._backfill_answer_from_evidence(
+                answer=answer,
+                retrieved=retrieved,
+                company_hint=company_hint,
+                question=question,
+            )
+            return answer, retrieved
 
-        context = "\n\n".join(
-            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
-            for c in retrieved
-        )
+        if template_id == self.ENTRY_TEMPLATE_INDUSTRY_MARKET:
+            industry_name = self._extract_industry_from_query(question) or "정보 부족"
+            retrieved = self._retrieve_for_industry_query(industry_name if industry_name != "정보 부족" else question, question, top_k=k)
+            if not retrieved:
+                return _base_answer("산업/시장 분석 근거가 부족합니다. 인덱스를 갱신하거나 산업명을 더 구체화해 주세요."), []
+            detail = self._industry_market_simple_template(industry_name, question, retrieved)
+            answer = _base_answer(str(detail.get("summary") or "정보 부족"))
+            answer["industry_name"] = industry_name
+            answer["highlights"] = [f"분석 대상 산업: {industry_name}"]
+            answer.update(detail)
+            return answer, retrieved
 
-        prompt = f"""
-너는 한국 상장사 분석 어시스턴트다.
-아래 컨텍스트만 사용해 답해라. 모르면 추정하지 말고 빈 값이나 '정보 부족'으로 작성해라.
-출력은 반드시 JSON 객체 하나만 출력한다. 마크다운 금지.
-모든 설명 텍스트(summary, highlights, risks)는 한국어로 작성한다.
-기본 템플릿은 기업 개요 분석이며, 아래 항목 순서를 지켜 작성한다.
-필수 항목: 회사 개요, 사업부 구조, 매출/영업이익 5년 추이, EBITDA, 시가총액, 경쟁사, 핵심 리스크, 최근 주요 공시.
+        if template_id == self.ENTRY_TEMPLATE_VALUATION:
+            company_name = self._extract_company_from_query(question) or (similar_names[0] if similar_names else "정보 부족")
+            retrieved = (
+                self._retrieve_for_company_query(company_name, question, top_k=k) if company_name != "정보 부족" else self.retrieve(question, top_k=k)
+            )
+            if not retrieved:
+                return _base_answer("밸류에이션 분석 근거가 부족합니다. 대상 회사를 명시하거나 인덱스를 갱신해 주세요.", company_name=company_name), []
+            detail = self._valuation_simple_template(company_name, question, retrieved)
+            answer = _base_answer(str(detail.get("summary") or "정보 부족"), company_name=company_name)
+            answer.update(detail)
+            return answer, retrieved
 
-JSON 스키마:
-{{
-  "template_id": "company_overview",
-  "template_name": "기업 개요 분석",
-  "company_name": "string",
-  "market": "KOSPI|KOSDAQ|OTHER|정보 부족",
-  "summary": "string",
-  "company_overview": "string",
-  "business_structure": "string",
-  "revenue_operating_income_5y_trend": "string",
-  "ebitda": "string",
-  "market_cap": "string",
-  "competitors": ["string"],
-  "key_risks": ["string"],
-  "recent_disclosures": ["string"],
-  "highlights": ["string"],
-  "financial_snapshot": {{
-    "market_cap": "string",
-    "revenue": "string",
-    "operating_income": "string",
-    "net_income": "string"
-  }},
-  "risks": ["string"],
-  "sources": ["string"],
-  "similar_companies": ["string"]
-}}
+        if template_id == self.ENTRY_TEMPLATE_SYNERGY_PAIR:
+            companies = self.infer_companies_from_text(question, top_k=2)
+            if len(companies) < 2:
+                one = self._extract_company_from_query(question)
+                if one and one not in companies:
+                    companies.append(one)
+            companies = companies[:2]
+            company_label = " + ".join(companies) if companies else "정보 부족"
+            if companies:
+                merged: list[dict[str, Any]] = []
+                seen: set[tuple[str, str, str]] = set()
+                for nm in companies:
+                    rows = self._retrieve_for_company_query(nm, question, top_k=max(3, k), allow_fallback=True)
+                    for r in rows:
+                        key = (str(r.get("source") or ""), str(r.get("company") or ""), str(r.get("text") or ""))
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        merged.append(r)
+                        if len(merged) >= max(k, 6):
+                            break
+                    if len(merged) >= max(k, 6):
+                        break
+                retrieved = merged[: max(k, 6)]
+            else:
+                retrieved = self.retrieve(question, top_k=max(k, 6))
+            if not retrieved:
+                return _base_answer("두 회사 시너지 분석 근거가 부족합니다. 회사명을 명확히 입력해 주세요.", company_name=company_label), []
+            detail = self._synergy_simple_template(company_label, question, retrieved)
+            answer = _base_answer(str(detail.get("summary") or "정보 부족"), company_name=company_label)
+            answer["highlights"] = [f"시너지 분석 대상: {company_label}"]
+            answer.update(detail)
+            return answer, retrieved
 
-질문:
-{question}
+        if template_id == self.ENTRY_TEMPLATE_DUE_DILIGENCE_RISK:
+            company_name = self._extract_company_from_query(question) or (similar_names[0] if similar_names else "정보 부족")
+            retrieved = (
+                self._retrieve_for_company_query(company_name, question, top_k=k) if company_name != "정보 부족" else self.retrieve(question, top_k=k)
+            )
+            if not retrieved:
+                return _base_answer("리스크/실사 분석 근거가 부족합니다. 대상 회사를 명시하거나 인덱스를 갱신해 주세요.", company_name=company_name), []
+            detail = self._due_diligence_simple_template(company_name, question, retrieved)
+            answer = _base_answer(str(detail.get("summary") or "정보 부족"), company_name=company_name)
+            answer.update(detail)
+            return answer, retrieved
 
-질문 대상 회사:
-{company_hint or "명시되지 않음"}
+        if template_id == self.ENTRY_TEMPLATE_STRATEGIC_DECISION:
+            company_name = self._extract_company_from_query(question) or (similar_names[0] if similar_names else "정보 부족")
+            retrieved = (
+                self._retrieve_for_company_query(company_name, question, top_k=k) if company_name != "정보 부족" else self.retrieve(question, top_k=k)
+            )
+            if not retrieved:
+                return _base_answer("전략적 의사결정 분석 근거가 부족합니다. 대상 회사를 명시하거나 인덱스를 갱신해 주세요.", company_name=company_name), []
+            detail = self._strategic_decision_simple_template(company_name, question, retrieved)
+            answer = _base_answer(str(detail.get("summary") or "정보 부족"), company_name=company_name)
+            answer.update(detail)
+            return answer, retrieved
 
-컨텍스트:
-{context}
-""".strip()
-
-        answer = self.client.generate_json(settings.ollama_chat_model, prompt)
-        answer = self._sanitize_answer(answer, retrieved)
-        answer["template_id"] = template_id
-        answer["template_name"] = template_name
-        if company_hint:
-            answer["company_name"] = company_hint
-            cm = self._company_master_item(company_hint)
-            if isinstance(cm, dict):
-                markets = cm.get("markets")
-                if isinstance(markets, list):
-                    mk = next((str(x).upper() for x in markets if str(x).upper() in {"KOSPI", "KOSDAQ", "OTHER"}), "")
-                    if mk:
-                        answer["market"] = mk
-        answer = self._backfill_answer_from_evidence(
-            answer=answer,
-            retrieved=retrieved,
-            company_hint=company_hint,
-            question=question,
-        )
-        return answer, retrieved
+        return _base_answer("템플릿 분류 결과를 처리할 수 없습니다. 다시 질문해 주세요."), []
 
     def _classify_entry_template(self, question: str) -> tuple[str, str]:
         q = (question or "").strip()
         if not q:
-            return self.ENTRY_TEMPLATE_COMPANY_OVERVIEW, self.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW
+            return self.ENTRY_TEMPLATE_TARGET_OVERVIEW, self.ENTRY_TEMPLATE_NAME_TARGET_OVERVIEW
         prompt = f"""
 너는 질의 라우터다. 아래 사용자 질의를 읽고 템플릿 1개만 선택하라.
 출력은 JSON 하나만 반환한다.
 
 허용 template_id:
-- {self.ENTRY_TEMPLATE_COMPANY_OVERVIEW}: 기업 개요/재무/리스크/공시 중심
-- {self.ENTRY_TEMPLATE_PEER_LIST}: 유사 업체/동종 기업 목록 추천
+- {self.ENTRY_TEMPLATE_TARGET_OVERVIEW}: 특정 기업 개요/사업구조/재무/공시 요약
+- {self.ENTRY_TEMPLATE_INDUSTRY_MARKET}: 산업 구조/시장 규모/성장성/경쟁구도 분석
+- {self.ENTRY_TEMPLATE_VALUATION}: 기업가치/멀티플/DCF/IRR 등 밸류에이션 분석
+- {self.ENTRY_TEMPLATE_SYNERGY_PAIR}: 두 회사 간 시너지/통합효과 분석
+- {self.ENTRY_TEMPLATE_DUE_DILIGENCE_RISK}: 리스크 식별/실사 체크포인트 분석
+- {self.ENTRY_TEMPLATE_STRATEGIC_DECISION}: 인수 여부/구조/우선순위 등 전략적 의사결정
 
 JSON 스키마:
 {{
-  "template_id": "company_overview|peer_list",
+  "template_id": "target_company_overview|industry_market_analysis|valuation_analysis|synergy_pair_analysis|due_diligence_risk_analysis|strategic_decision_analysis",
   "confidence": 0.0,
   "reason": "string"
 }}
 
 분류 기준:
-- company_overview: 특정 기업의 개요/사업구조/재무/리스크/공시를 설명해 달라는 요청
-- peer_list: 특정 기업 또는 주제와 관련된 업체/기업 목록, 유사 업체, 동종 업체, 경쟁사 리스트 요청
+- target_company_overview: 특정 기업의 개요/사업구조/재무/공시 설명
+- industry_market_analysis: 특정 산업/시장 전반 분석
+- valuation_analysis: 기업가치/멀티플/DCF/IRR/프리미엄 등 가치평가 중심
+- synergy_pair_analysis: 두 회사 간 합병/인수 시 시너지 분석
+- due_diligence_risk_analysis: 실사 항목, 법무/재무/운영 리스크 점검
+- strategic_decision_analysis: 인수전략, 구조 대안, 의사결정 권고
 
 예시:
-- "삼성전자 개요 알려줘" -> company_overview
-- "삼성전자 관련 업체는?" -> peer_list
-- "2차전지 유사 업체 리스트" -> peer_list
-- "네이버 사업부 구조와 5년 실적" -> company_overview
+- "삼성전자 개요 알려줘" -> target_company_overview
+- "2차전지 산업의 성장성과 경쟁구도 분석해줘" -> industry_market_analysis
+- "LG전자 적정 EV/EBITDA 범위 알려줘" -> valuation_analysis
+- "삼성전자랑 LG전자가 합병하면?" -> synergy_pair_analysis
+- "한화오션 인수 전 실사 체크리스트 작성해줘" -> due_diligence_risk_analysis
+- "현금/주식 혼합 인수 구조 중 무엇이 유리한지 결정해줘" -> strategic_decision_analysis
 
 사용자 질의:
 {q}
 """.strip()
         raw = self.client.generate_json(settings.ollama_chat_model, prompt)
         valid = {
-            self.ENTRY_TEMPLATE_COMPANY_OVERVIEW: self.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW,
-            self.ENTRY_TEMPLATE_PEER_LIST: self.ENTRY_TEMPLATE_NAME_PEER_LIST,
+            self.ENTRY_TEMPLATE_TARGET_OVERVIEW: self.ENTRY_TEMPLATE_NAME_TARGET_OVERVIEW,
+            self.ENTRY_TEMPLATE_INDUSTRY_MARKET: self.ENTRY_TEMPLATE_NAME_INDUSTRY_MARKET,
+            self.ENTRY_TEMPLATE_VALUATION: self.ENTRY_TEMPLATE_NAME_VALUATION,
+            self.ENTRY_TEMPLATE_SYNERGY_PAIR: self.ENTRY_TEMPLATE_NAME_SYNERGY_PAIR,
+            self.ENTRY_TEMPLATE_DUE_DILIGENCE_RISK: self.ENTRY_TEMPLATE_NAME_DUE_DILIGENCE_RISK,
+            self.ENTRY_TEMPLATE_STRATEGIC_DECISION: self.ENTRY_TEMPLATE_NAME_STRATEGIC_DECISION,
         }
         if isinstance(raw, dict):
             tid = str(raw.get("template_id") or "").strip()
@@ -436,34 +452,40 @@ JSON 스키마:
                 return tid, valid[tid]
             # generate_json() parse 실패 시 raw 텍스트를 담아줄 수 있어 보조 파싱
             raw_text = str(raw.get("raw") or "").strip().lower()
-            if "peer_list" in raw_text:
-                return self.ENTRY_TEMPLATE_PEER_LIST, self.ENTRY_TEMPLATE_NAME_PEER_LIST
-            if "company_overview" in raw_text:
-                return self.ENTRY_TEMPLATE_COMPANY_OVERVIEW, self.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW
+            for tid, tname in valid.items():
+                if tid in raw_text:
+                    return tid, tname
 
         # 2차 LLM 분류(단일 토큰 응답). 여기도 LLM 판단으로 처리.
         retry_prompt = f"""
 아래 질의를 템플릿 1개로 분류하라.
-출력은 아래 두 단어 중 하나만 출력한다(설명 금지):
-- company_overview
-- peer_list
+출력은 아래 6개 중 하나만 출력한다(설명 금지):
+- {self.ENTRY_TEMPLATE_TARGET_OVERVIEW}
+- {self.ENTRY_TEMPLATE_INDUSTRY_MARKET}
+- {self.ENTRY_TEMPLATE_VALUATION}
+- {self.ENTRY_TEMPLATE_SYNERGY_PAIR}
+- {self.ENTRY_TEMPLATE_DUE_DILIGENCE_RISK}
+- {self.ENTRY_TEMPLATE_STRATEGIC_DECISION}
 
 규칙:
-- 업체/기업 리스트, 유사업체, 동종업체, 경쟁사 목록 요청이면 peer_list
-- 특정 회사의 개요/재무/리스크/공시면 company_overview
+- 기업 개요/사업구조/재무/공시는 target_company_overview
+- 산업/시장 전반 분석은 industry_market_analysis
+- 가치평가/멀티플/DCF는 valuation_analysis
+- 두 회사간 시너지/합병효과는 synergy_pair_analysis
+- 실사/리스크 점검은 due_diligence_risk_analysis
+- 인수 구조/우선순위/의사결정 권고는 strategic_decision_analysis
 
 질의: {q}
 """.strip()
         retry_raw = self.client.generate_json(settings.ollama_chat_model, retry_prompt)
         if isinstance(retry_raw, dict):
             cand = str(retry_raw.get("template_id") or retry_raw.get("raw") or "").strip().lower()
-            if "peer_list" in cand:
-                return self.ENTRY_TEMPLATE_PEER_LIST, self.ENTRY_TEMPLATE_NAME_PEER_LIST
-            if "company_overview" in cand:
-                return self.ENTRY_TEMPLATE_COMPANY_OVERVIEW, self.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW
+            for tid, tname in valid.items():
+                if tid in cand:
+                    return tid, tname
 
         # 최종 폴백
-        return self.ENTRY_TEMPLATE_COMPANY_OVERVIEW, self.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW
+        return self.ENTRY_TEMPLATE_TARGET_OVERVIEW, self.ENTRY_TEMPLATE_NAME_TARGET_OVERVIEW
 
     @staticmethod
     def _dedup_sources_from_rows(rows: list[dict[str, Any]]) -> list[str]:
@@ -1830,6 +1852,8 @@ JSON 스키마:
         rev_points: list[tuple[int, float]] = []
         op_points: list[tuple[int, float]] = []
         latest_ebitda_margin: float | None = None
+        profile_revenue: float | None = None
+        profile_op_margin: float | None = None
 
         for p in source_paths:
             payload = self._safe_read_json(p)
@@ -1839,6 +1863,10 @@ JSON 스키마:
             mc = self._to_float(profile.get("market_cap"))
             if mc is not None and market_cap is None:
                 market_cap = mc
+            if profile_revenue is None:
+                profile_revenue = self._to_float(profile.get("revenue"))
+            if profile_op_margin is None:
+                profile_op_margin = self._to_float(profile.get("operating_margins"))
 
             f5 = payload.get("financials_5y") if isinstance(payload.get("financials_5y"), dict) else {}
             years = f5.get("years") if isinstance(f5.get("years"), list) else []
@@ -1865,6 +1893,13 @@ JSON 스키마:
                     latest_op_income = opi
                     latest_net_income = ni
                     latest_ebitda_margin = mgn
+
+        if latest_revenue is None and profile_revenue is not None:
+            latest_revenue = profile_revenue
+        if latest_op_income is None and profile_revenue is not None and profile_op_margin is not None:
+            latest_op_income = profile_revenue * profile_op_margin
+        if latest_ebitda_margin is None and profile_op_margin is not None:
+            latest_ebitda_margin = profile_op_margin * 100.0
 
         if self._is_missing(snap.get("market_cap")) and market_cap is not None:
             snap["market_cap"] = self._number_text(market_cap)
@@ -1897,6 +1932,13 @@ JSON 스키마:
                 f"매출 CAGR(가용연도 기준)은 {cagr_text}이며 EBITDA 마진은 "
                 f"{f'{latest_ebitda_margin:.2f}%' if latest_ebitda_margin is not None else '정보 부족'}입니다."
             )
+        elif need_summary and (latest_revenue is not None or market_cap is not None):
+            name = str(out.get("company_name") or company_hint or "해당 기업")
+            out["summary"] = (
+                f"{name}의 최신 재무 스냅샷 기준으로 매출/수익성 및 시가총액 정보를 일부 확인했습니다. "
+                f"매출 {self._number_text(latest_revenue)}, 시가총액 {self._number_text(market_cap)}, "
+                f"EBITDA 마진 {f'{latest_ebitda_margin:.2f}%' if latest_ebitda_margin is not None else '정보 부족'}입니다."
+            )
         if self._is_missing(out.get("company_overview")):
             out["company_overview"] = out.get("summary") or "정보 부족"
 
@@ -1915,6 +1957,8 @@ JSON 스키마:
         if self._is_missing(out.get("ebitda")):
             if latest_ebitda_margin is not None and latest_year is not None:
                 out["ebitda"] = f"{latest_year} EBITDA 마진 {latest_ebitda_margin:.2f}%"
+            elif latest_ebitda_margin is not None:
+                out["ebitda"] = f"EBITDA 마진 {latest_ebitda_margin:.2f}%"
             else:
                 out["ebitda"] = "정보 부족"
 
@@ -1973,6 +2017,102 @@ JSON 스키마:
                 if len(recents) >= 5:
                     break
             out["recent_disclosures"] = recents
+
+        # target_company_overview 출력은 중첩 필드(target_overview/financial_overview/...)를 사용하므로
+        # 상위 필드에서 보강된 값을 중첩 구조에도 동기화해 "정보 부족" 과다 표출을 줄인다.
+        tv = out.get("target_overview") if isinstance(out.get("target_overview"), dict) else {}
+        bs = out.get("business_structure") if isinstance(out.get("business_structure"), dict) else {}
+        fo = out.get("financial_overview") if isinstance(out.get("financial_overview"), dict) else {}
+        rd = out.get("risk_disclosure") if isinstance(out.get("risk_disclosure"), dict) else {}
+
+        industry_text = "정보 부족"
+        major_products = "정보 부족"
+        key_customers_text = "정보 부족"
+        growth_text = "정보 부족"
+        key_risks_list: list[str] = []
+
+        for p in source_paths:
+            payload = self._safe_read_json(p)
+            if not isinstance(payload, dict):
+                continue
+
+            profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else {}
+            if industry_text == "정보 부족":
+                ind = str(profile.get("industry") or "").strip()
+                if ind:
+                    industry_text = ind
+            if growth_text == "정보 부족":
+                opm = self._to_float(profile.get("operating_margins"))
+                if opm is not None:
+                    growth_text = f"영업이익률 {opm * 100:.2f}%"
+
+            dart = payload.get("dart") if isinstance(payload.get("dart"), dict) else {}
+            if industry_text == "정보 부족":
+                ind_code = str(dart.get("induty_code") or "").strip()
+                if ind_code:
+                    industry_text = f"한국표준산업분류 {ind_code}"
+
+            dep = payload.get("customer_dependency") if isinstance(payload.get("customer_dependency"), dict) else {}
+            tops = dep.get("top_customers") if isinstance(dep.get("top_customers"), list) else []
+            if key_customers_text == "정보 부족" and tops:
+                names = [str(x.get("name") or "").strip() for x in tops if isinstance(x, dict)]
+                names = [x for x in names if x]
+                if names:
+                    key_customers_text = ", ".join(names[:5])
+
+            esg = payload.get("esg") if isinstance(payload.get("esg"), dict) else {}
+            if isinstance(esg.get("risk_flags"), list):
+                for r in esg.get("risk_flags"):
+                    rr = str(r).strip()
+                    if rr:
+                        key_risks_list.append(rr)
+
+            if major_products == "정보 부족" and str(payload.get("source") or "").strip() == "external_market_share":
+                ms = payload.get("market_share") if isinstance(payload.get("market_share"), dict) else {}
+                ind = str(ms.get("industry") or "").strip()
+                if ind:
+                    major_products = f"{ind} 관련 제품/솔루션 중심"
+
+        if self._is_missing(tv.get("company_definition")):
+            tv["company_definition"] = industry_text
+        if self._is_missing(tv.get("major_products_services")):
+            tv["major_products_services"] = major_products
+        if self._is_missing(tv.get("business_stage")):
+            tv["business_stage"] = "성숙기" if industry_text != "정보 부족" else "정보 부족"
+
+        if self._is_missing(bs.get("major_business_units")):
+            bs["major_business_units"] = "사업부 세부 구조는 정보 부족"
+        if self._is_missing(bs.get("revenue_mix")):
+            bs["revenue_mix"] = "사업부별 매출 비중 정보 부족"
+        if self._is_missing(bs.get("key_customers")):
+            bs["key_customers"] = key_customers_text
+
+        if self._is_missing(fo.get("revenue")):
+            fo["revenue"] = snap.get("revenue", "정보 부족")
+        if self._is_missing(fo.get("operating_income")):
+            fo["operating_income"] = snap.get("operating_income", "정보 부족")
+        if self._is_missing(fo.get("ebitda")):
+            fo["ebitda"] = out.get("ebitda", "정보 부족")
+        if self._is_missing(fo.get("recent_growth_rate")):
+            fo["recent_growth_rate"] = growth_text
+
+        if not isinstance(rd.get("key_risks"), list) or not rd.get("key_risks"):
+            if key_risks_list:
+                rd["key_risks"] = list(dict.fromkeys(key_risks_list))[:5]
+            elif isinstance(out.get("key_risks"), list) and out.get("key_risks"):
+                rd["key_risks"] = [str(x).strip() for x in out.get("key_risks") if str(x).strip()][:5]
+        if not isinstance(rd.get("recent_disclosures"), list) or not rd.get("recent_disclosures"):
+            rd["recent_disclosures"] = list(out.get("recent_disclosures") or [])[:5]
+        if not isinstance(rd.get("watchpoints"), list) or not rd.get("watchpoints"):
+            watch = []
+            if isinstance(rd.get("key_risks"), list):
+                watch = [f"{x} 모니터링" for x in rd.get("key_risks") if str(x).strip()]
+            rd["watchpoints"] = watch[:5]
+
+        out["target_overview"] = tv
+        out["business_structure"] = bs
+        out["financial_overview"] = fo
+        out["risk_disclosure"] = rd
 
         # 5개년 질문인데 핵심 숫자가 비어있으면 최소 안내문으로 대체한다.
         q = (question or "").strip().lower()
@@ -2440,6 +2580,25 @@ JSON 스키마:
         name = str(best_item.get("canonical_name") or "").strip()
         return name or None
 
+    @staticmethod
+    def _extract_industry_from_query(question: str) -> str | None:
+        q = str(question or "").strip()
+        if not q:
+            return None
+        patterns = [
+            r"([가-힣A-Za-z0-9\-\s]{2,20})\s*산업",
+            r"([가-힣A-Za-z0-9\-\s]{2,20})\s*시장",
+            r"([가-힣A-Za-z0-9\-\s]{2,20})\s*업종",
+        ]
+        for p in patterns:
+            m = re.search(p, q)
+            if not m:
+                continue
+            name = str(m.group(1) or "").strip()
+            if name:
+                return name
+        return None
+
     def infer_companies_from_text(self, text: str, top_k: int = 5) -> list[str]:
         idx = self._load_company_master_index()
         if not idx:
@@ -2767,6 +2926,308 @@ JSON 스키마:
                 return text
         return "정보 부족: 현재 인덱스 근거만으로는 질문에 대한 신뢰 가능한 답변을 만들기 어렵습니다."
 
+    def _industry_market_simple_template(
+        self, industry_name: str, question: str, retrieved: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        context = "\n\n".join(
+            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
+            for c in retrieved
+        )
+        prompt = f"""
+너는 산업 및 시장 분석가다. 아래 컨텍스트만 사용해서 Simple Version 템플릿으로 작성하라.
+모르면 "정보 부족"으로 채워라. 출력은 JSON 객체 하나만.
+
+JSON 스키마:
+{{
+  "summary": "string",
+  "industry_overview": {{
+    "industry_definition": "string",
+    "major_products_services": "string",
+    "industry_stage": "성장기|성숙기|도입기|쇠퇴기|정보 부족"
+  }},
+  "market_size": {{
+    "domestic_market_size": "string",
+    "global_market_size": "string",
+    "recent_growth_rate": "string"
+  }},
+  "competitive_environment": {{
+    "key_competitors": ["string"],
+    "market_share": "string",
+    "competition_intensity": "낮음|보통|높음|정보 부족"
+  }},
+  "industry_outlook": {{
+    "future_growth_outlook": "string",
+    "key_opportunities": ["string"],
+    "key_threats": ["string"]
+  }}
+}}
+
+질문: {question}
+산업: {industry_name}
+컨텍스트:
+{context}
+""".strip()
+        raw = self.client.generate_json(settings.ollama_chat_model, prompt)
+        return raw if isinstance(raw, dict) else {"summary": "정보 부족"}
+
+    def _target_overview_simple_template(
+        self, company_name: str, question: str, retrieved: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        context = "\n\n".join(
+            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
+            for c in retrieved
+        )
+        prompt = f"""
+너는 타겟 기업 개요 분석가다. 아래 컨텍스트만 사용해서 Simple Version 템플릿으로 작성하라.
+모르면 "정보 부족"으로 채워라. 출력은 JSON 객체 하나만.
+
+JSON 스키마:
+{{
+  "summary": "string",
+  "target_overview": {{
+    "company_definition": "string",
+    "major_products_services": "string",
+    "business_stage": "성장기|성숙기|도입기|쇠퇴기|정보 부족"
+  }},
+  "business_structure": {{
+    "major_business_units": "string",
+    "revenue_mix": "string",
+    "key_customers": "string"
+  }},
+  "financial_overview": {{
+    "revenue": "string",
+    "operating_income": "string",
+    "ebitda": "string",
+    "recent_growth_rate": "string"
+  }},
+  "risk_disclosure": {{
+    "key_risks": ["string"],
+    "recent_disclosures": ["string"],
+    "watchpoints": ["string"]
+  }}
+}}
+
+질문: {question}
+기업: {company_name}
+컨텍스트:
+{context}
+""".strip()
+        raw = self.client.generate_json(settings.ollama_chat_model, prompt)
+        return raw if isinstance(raw, dict) else {"summary": "정보 부족"}
+
+    def _valuation_simple_template(self, company_name: str, question: str, retrieved: list[dict[str, Any]]) -> dict[str, Any]:
+        context = "\n\n".join(
+            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
+            for c in retrieved
+        )
+        prompt = f"""
+너는 밸류에이션 분석가다. 아래 컨텍스트만 사용해서 Simple Version 템플릿으로 작성하라.
+모르면 "정보 부족"으로 채워라. 출력은 JSON 객체 하나만.
+
+JSON 스키마:
+{{
+  "summary": "string",
+  "financial_summary": {{
+    "revenue": "string",
+    "operating_income": "string",
+    "ebitda": "string",
+    "recent_growth_rate": "string"
+  }},
+  "multiple_comparison": {{
+    "applied_multiple": "string",
+    "peer_average": "string",
+    "target_value_range": "string"
+  }},
+  "fair_value_range": {{
+    "conservative_scenario": "string",
+    "base_scenario": "string",
+    "aggressive_scenario": "string"
+  }}
+}}
+
+질문: {question}
+기업: {company_name}
+컨텍스트:
+{context}
+""".strip()
+        raw = self.client.generate_json(settings.ollama_chat_model, prompt)
+        return raw if isinstance(raw, dict) else {"summary": "정보 부족"}
+
+    def _synergy_simple_template(self, company_name: str, question: str, retrieved: list[dict[str, Any]]) -> dict[str, Any]:
+        context = "\n\n".join(
+            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
+            for c in retrieved
+        )
+        prompt = f"""
+너는 두 회사 간 시너지 분석가다. 아래 컨텍스트만 사용해서 Simple Version 템플릿으로 작성하라.
+모르면 "정보 부족"으로 채워라. 출력은 JSON 객체 하나만.
+단, 근거가 조금이라도 있으면 "정보 부족"만 반복하지 말고 제한사항을 명시한 보수적 문장으로 채워라.
+
+JSON 스키마:
+{{
+  "summary": "string",
+  "strategic_fit": {{
+    "business_complementarity": "string",
+    "customer_market_overlap": "string"
+  }},
+  "revenue_synergy": {{
+    "new_customer_potential": "string",
+    "product_service_combination_effect": "string"
+  }},
+  "cost_synergy": {{
+    "organization_integration_effect": "string",
+    "purchasing_production_efficiency": "string"
+  }},
+  "overall_synergy_judgment": {{
+    "feasibility": "높음|보통|낮음|정보 부족",
+    "expected_realization_period": "string"
+  }}
+}}
+
+질문: {question}
+대상: {company_name}
+컨텍스트:
+{context}
+""".strip()
+        raw = self.client.generate_json(settings.ollama_chat_model, prompt)
+        out = raw if isinstance(raw, dict) else {}
+        if "raw" in out and "summary" not in out:
+            out = {}
+
+        def _n(v: Any) -> str:
+            s = str(v or "").strip()
+            return s if s else "정보 부족"
+
+        norms = [self._normalize_company_name(x) for x in re.split(r"\s*\+\s*", company_name) if str(x).strip()]
+        seen_companies = [self._normalize_company_name(str(r.get("company") or "")) for r in retrieved]
+        matched = 0
+        for n in norms:
+            if n and any((n in c) or (c and c in n) for c in seen_companies):
+                matched += 1
+        coverage = "양사 근거 일부 확인" if matched >= 2 else ("단일사 중심 근거" if matched == 1 else "기업 매칭 근거 부족")
+        readiness = "부분" if len(retrieved) < 6 else "가능"
+        fallback_summary = self._answer_synergy_question(company_name, question, readiness, retrieved)
+        feasibility = "보통" if matched >= 2 else ("낮음" if matched == 1 else "정보 부족")
+        period = "12~24개월(근거 제한)" if matched >= 1 else "정보 부족"
+
+        strategic_fit = out.get("strategic_fit") if isinstance(out.get("strategic_fit"), dict) else {}
+        revenue_synergy = out.get("revenue_synergy") if isinstance(out.get("revenue_synergy"), dict) else {}
+        cost_synergy = out.get("cost_synergy") if isinstance(out.get("cost_synergy"), dict) else {}
+        overall = out.get("overall_synergy_judgment") if isinstance(out.get("overall_synergy_judgment"), dict) else {}
+
+        return {
+            "summary": _n(out.get("summary")) if _n(out.get("summary")) != "정보 부족" else fallback_summary,
+            "strategic_fit": {
+                "business_complementarity": _n(strategic_fit.get("business_complementarity"))
+                if _n(strategic_fit.get("business_complementarity")) != "정보 부족"
+                else f"{coverage}: 사업 포트폴리오 보완성은 추가 검증 필요",
+                "customer_market_overlap": _n(strategic_fit.get("customer_market_overlap"))
+                if _n(strategic_fit.get("customer_market_overlap")) != "정보 부족"
+                else f"{coverage}: 고객/시장 중첩도는 정량 데이터 보강 필요",
+            },
+            "revenue_synergy": {
+                "new_customer_potential": _n(revenue_synergy.get("new_customer_potential"))
+                if _n(revenue_synergy.get("new_customer_potential")) != "정보 부족"
+                else "교차판매 가능성은 있으나 고객 세그먼트 데이터 추가 필요",
+                "product_service_combination_effect": _n(revenue_synergy.get("product_service_combination_effect"))
+                if _n(revenue_synergy.get("product_service_combination_effect")) != "정보 부족"
+                else "제품/서비스 결합 효과는 상용화 시나리오 검증 필요",
+            },
+            "cost_synergy": {
+                "organization_integration_effect": _n(cost_synergy.get("organization_integration_effect"))
+                if _n(cost_synergy.get("organization_integration_effect")) != "정보 부족"
+                else "조직 통합에 따른 비용 절감 여지는 있으나 PMI 계획 필요",
+                "purchasing_production_efficiency": _n(cost_synergy.get("purchasing_production_efficiency"))
+                if _n(cost_synergy.get("purchasing_production_efficiency")) != "정보 부족"
+                else "구매/생산 효율화는 공급망 데이터 확보 후 추정 가능",
+            },
+            "overall_synergy_judgment": {
+                "feasibility": _n(overall.get("feasibility")) if _n(overall.get("feasibility")) != "정보 부족" else feasibility,
+                "expected_realization_period": _n(overall.get("expected_realization_period"))
+                if _n(overall.get("expected_realization_period")) != "정보 부족"
+                else period,
+            },
+        }
+
+    def _due_diligence_simple_template(
+        self, company_name: str, question: str, retrieved: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        context = "\n\n".join(
+            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
+            for c in retrieved
+        )
+        prompt = f"""
+너는 M&A 리스크 및 실사 분석가다. 아래 컨텍스트만 사용해서 Simple Version 템플릿으로 작성하라.
+모르면 "정보 부족"으로 채워라. 출력은 JSON 객체 하나만.
+
+JSON 스키마:
+{{
+  "summary": "string",
+  "financial_risk": {{
+    "earnings_volatility": "string",
+    "debt_level": "string"
+  }},
+  "legal_regulatory_risk": {{
+    "litigation_status": "string",
+    "regulatory_impact": "string"
+  }},
+  "operational_risk": {{
+    "key_person_dependency": "string",
+    "major_customer_dependency": "string"
+  }},
+  "integration_risk": {{
+    "organizational_culture_gap": "string",
+    "system_integration_difficulty": "string"
+  }}
+}}
+
+질문: {question}
+기업: {company_name}
+컨텍스트:
+{context}
+""".strip()
+        raw = self.client.generate_json(settings.ollama_chat_model, prompt)
+        return raw if isinstance(raw, dict) else {"summary": "정보 부족"}
+
+    def _strategic_decision_simple_template(
+        self, company_name: str, question: str, retrieved: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        context = "\n\n".join(
+            f"[source={c['source']}, company={c['company']}, market={c['market']}, score={c['score']}]\n{c['text']}"
+            for c in retrieved
+        )
+        prompt = f"""
+너는 M&A 전략 의사결정 어드바이저다. 아래 컨텍스트만 사용해서 Simple Version 템플릿으로 작성하라.
+모르면 "정보 부족"으로 채워라. 출력은 JSON 객체 하나만.
+
+JSON 스키마:
+{{
+  "summary": "string",
+  "acquisition_necessity": {{
+    "strategic_rationale": "string",
+    "expected_effect": "string"
+  }},
+  "financial_feasibility": {{
+    "return_potential": "string",
+    "risk_level": "string"
+  }},
+  "key_risks_summary": {{
+    "top3_key_risks": ["string"]
+  }},
+  "final_opinion": {{
+    "decision": "Go|Conditional Go|No-Go|정보 부족",
+    "conditions": "string"
+  }}
+}}
+
+질문: {question}
+기업: {company_name}
+컨텍스트:
+{context}
+""".strip()
+        raw = self.client.generate_json(settings.ollama_chat_model, prompt)
+        return raw if isinstance(raw, dict) else {"summary": "정보 부족"}
+
     @staticmethod
     def _is_ticker_like_name(name: str) -> bool:
         n = str(name or "").strip().upper()
@@ -2801,6 +3262,167 @@ JSON 스키마:
     def to_korean_readable(answer: dict[str, Any]) -> str:
         template_id = str(answer.get("template_id") or RagPipeline.ENTRY_TEMPLATE_COMPANY_OVERVIEW)
         template_name = str(answer.get("template_name") or RagPipeline.ENTRY_TEMPLATE_NAME_COMPANY_OVERVIEW)
+        if template_id == RagPipeline.ENTRY_TEMPLATE_TARGET_OVERVIEW:
+            tv = answer.get("target_overview") if isinstance(answer.get("target_overview"), dict) else {}
+            bs = answer.get("business_structure") if isinstance(answer.get("business_structure"), dict) else {}
+            fo = answer.get("financial_overview") if isinstance(answer.get("financial_overview"), dict) else {}
+            rd = answer.get("risk_disclosure") if isinstance(answer.get("risk_disclosure"), dict) else {}
+            company_name = str(answer.get("company_name") or "정보 부족")
+            sources = answer.get("sources") if isinstance(answer.get("sources"), list) else []
+            summary = str(answer.get("summary") or "정보 부족")
+            lines = [
+                f"[기본 템플릿: {template_name} ({template_id})]",
+                "1.1 기업 개요",
+                f"- 산업 정의: {tv.get('company_definition', '정보 부족')}",
+                f"- 주요 제품/서비스: {tv.get('major_products_services', '정보 부족')}",
+                f"- 산업 단계: {tv.get('business_stage', '정보 부족')}",
+                "1.2 사업 구조",
+                f"- 주요 사업부: {bs.get('major_business_units', '정보 부족')}",
+                f"- 매출 구성: {bs.get('revenue_mix', '정보 부족')}",
+                f"- 주요 고객: {bs.get('key_customers', '정보 부족')}",
+                "1.3 재무 요약",
+                f"- 매출: {fo.get('revenue', '정보 부족')}",
+                f"- 영업이익: {fo.get('operating_income', '정보 부족')}",
+                f"- EBITDA: {fo.get('ebitda', '정보 부족')}",
+                f"- 최근 성장률: {fo.get('recent_growth_rate', '정보 부족')}",
+                "1.4 리스크 및 공시",
+                "- 핵심 리스크: " + (", ".join(str(x) for x in (rd.get("key_risks") or [])) if rd.get("key_risks") else "정보 부족"),
+                "- 최근 주요 공시: " + (", ".join(str(x) for x in (rd.get("recent_disclosures") or [])) if rd.get("recent_disclosures") else "정보 부족"),
+                "- 체크포인트: " + (", ".join(str(x) for x in (rd.get("watchpoints") or [])) if rd.get("watchpoints") else "정보 부족"),
+                f"대상: {company_name}",
+                f"분석 요약: {summary}",
+                "출처: " + (", ".join(str(x) for x in sources) if sources else "정보 부족"),
+            ]
+            return "\n".join(lines)
+        six_templates = {
+            RagPipeline.ENTRY_TEMPLATE_TARGET_OVERVIEW,
+            RagPipeline.ENTRY_TEMPLATE_INDUSTRY_MARKET,
+            RagPipeline.ENTRY_TEMPLATE_VALUATION,
+            RagPipeline.ENTRY_TEMPLATE_SYNERGY_PAIR,
+            RagPipeline.ENTRY_TEMPLATE_DUE_DILIGENCE_RISK,
+            RagPipeline.ENTRY_TEMPLATE_STRATEGIC_DECISION,
+        }
+        if template_id in six_templates and template_id != RagPipeline.ENTRY_TEMPLATE_TARGET_OVERVIEW:
+            summary = str(answer.get("summary") or "정보 부족")
+            company_name = str(answer.get("company_name") or "정보 부족")
+            industry_name = str(answer.get("industry_name") or "정보 부족")
+            sources = answer.get("sources") if isinstance(answer.get("sources"), list) else []
+            lines = [f"[기본 템플릿: {template_name} ({template_id})]"]
+            if template_id == RagPipeline.ENTRY_TEMPLATE_INDUSTRY_MARKET:
+                ov = answer.get("industry_overview") if isinstance(answer.get("industry_overview"), dict) else {}
+                ms = answer.get("market_size") if isinstance(answer.get("market_size"), dict) else {}
+                ce = answer.get("competitive_environment") if isinstance(answer.get("competitive_environment"), dict) else {}
+                out = answer.get("industry_outlook") if isinstance(answer.get("industry_outlook"), dict) else {}
+                lines.extend(
+                    [
+                        "2.1 산업 개요",
+                        f"- 산업 정의: {ov.get('industry_definition', '정보 부족')}",
+                        f"- 주요 제품/서비스: {ov.get('major_products_services', '정보 부족')}",
+                        f"- 산업 단계: {ov.get('industry_stage', '정보 부족')}",
+                        "2.2 시장 규모",
+                        f"- 국내 시장 규모: {ms.get('domestic_market_size', '정보 부족')}",
+                        f"- 글로벌 시장 규모: {ms.get('global_market_size', '정보 부족')}",
+                        f"- 최근 성장률: {ms.get('recent_growth_rate', '정보 부족')}",
+                        "2.3 경쟁 환경",
+                        "- 주요 경쟁사: " + (", ".join(str(x) for x in (ce.get("key_competitors") or [])) if ce.get("key_competitors") else "정보 부족"),
+                        f"- 시장 점유율: {ce.get('market_share', '정보 부족')}",
+                        f"- 경쟁 강도: {ce.get('competition_intensity', '정보 부족')}",
+                        "2.4 산업 전망",
+                        f"- 향후 성장 전망: {out.get('future_growth_outlook', '정보 부족')}",
+                        "- 주요 기회 요인: " + (", ".join(str(x) for x in (out.get("key_opportunities") or [])) if out.get("key_opportunities") else "정보 부족"),
+                        "- 주요 위협 요인: " + (", ".join(str(x) for x in (out.get("key_threats") or [])) if out.get("key_threats") else "정보 부족"),
+                    ]
+                )
+            elif template_id == RagPipeline.ENTRY_TEMPLATE_VALUATION:
+                fs = answer.get("financial_summary") if isinstance(answer.get("financial_summary"), dict) else {}
+                mc = answer.get("multiple_comparison") if isinstance(answer.get("multiple_comparison"), dict) else {}
+                fr = answer.get("fair_value_range") if isinstance(answer.get("fair_value_range"), dict) else {}
+                lines.extend(
+                    [
+                        "3.1 재무 요약",
+                        f"- 매출: {fs.get('revenue', '정보 부족')}",
+                        f"- 영업이익: {fs.get('operating_income', '정보 부족')}",
+                        f"- EBITDA: {fs.get('ebitda', '정보 부족')}",
+                        f"- 최근 성장률: {fs.get('recent_growth_rate', '정보 부족')}",
+                        "3.2 멀티플 비교",
+                        f"- 적용 멀티플: {mc.get('applied_multiple', '정보 부족')}",
+                        f"- 비교 기업 평균: {mc.get('peer_average', '정보 부족')}",
+                        f"- 타겟 적용 가치 범위: {mc.get('target_value_range', '정보 부족')}",
+                        "3.3 적정 가치 범위",
+                        f"- 보수적 시나리오: {fr.get('conservative_scenario', '정보 부족')}",
+                        f"- 기준 시나리오: {fr.get('base_scenario', '정보 부족')}",
+                        f"- 공격적 시나리오: {fr.get('aggressive_scenario', '정보 부족')}",
+                    ]
+                )
+            elif template_id == RagPipeline.ENTRY_TEMPLATE_SYNERGY_PAIR:
+                sf = answer.get("strategic_fit") if isinstance(answer.get("strategic_fit"), dict) else {}
+                rs = answer.get("revenue_synergy") if isinstance(answer.get("revenue_synergy"), dict) else {}
+                cs = answer.get("cost_synergy") if isinstance(answer.get("cost_synergy"), dict) else {}
+                oj = answer.get("overall_synergy_judgment") if isinstance(answer.get("overall_synergy_judgment"), dict) else {}
+                lines.extend(
+                    [
+                        "4.1 전략적 적합성",
+                        f"- 사업 보완성: {sf.get('business_complementarity', '정보 부족')}",
+                        f"- 고객/시장 중첩 여부: {sf.get('customer_market_overlap', '정보 부족')}",
+                        "4.2 매출 시너지",
+                        f"- 신규 고객 확보 가능성: {rs.get('new_customer_potential', '정보 부족')}",
+                        f"- 제품/서비스 결합 효과: {rs.get('product_service_combination_effect', '정보 부족')}",
+                        "4.3 비용 시너지",
+                        f"- 인력/조직 통합 효과: {cs.get('organization_integration_effect', '정보 부족')}",
+                        f"- 구매/생산 효율화: {cs.get('purchasing_production_efficiency', '정보 부족')}",
+                        "4.4 종합 시너지 판단",
+                        f"- 실현 가능성: {oj.get('feasibility', '정보 부족')}",
+                        f"- 예상 실현 기간: {oj.get('expected_realization_period', '정보 부족')}",
+                    ]
+                )
+            elif template_id == RagPipeline.ENTRY_TEMPLATE_DUE_DILIGENCE_RISK:
+                fr = answer.get("financial_risk") if isinstance(answer.get("financial_risk"), dict) else {}
+                lr = answer.get("legal_regulatory_risk") if isinstance(answer.get("legal_regulatory_risk"), dict) else {}
+                orisk = answer.get("operational_risk") if isinstance(answer.get("operational_risk"), dict) else {}
+                ir = answer.get("integration_risk") if isinstance(answer.get("integration_risk"), dict) else {}
+                lines.extend(
+                    [
+                        "5.1 재무 리스크",
+                        f"- 수익 변동성: {fr.get('earnings_volatility', '정보 부족')}",
+                        f"- 부채 수준: {fr.get('debt_level', '정보 부족')}",
+                        "5.2 법률/규제 리스크",
+                        f"- 소송 여부: {lr.get('litigation_status', '정보 부족')}",
+                        f"- 규제 영향: {lr.get('regulatory_impact', '정보 부족')}",
+                        "5.3 운영 리스크",
+                        f"- 핵심 인력 의존도: {orisk.get('key_person_dependency', '정보 부족')}",
+                        f"- 주요 고객 의존도: {orisk.get('major_customer_dependency', '정보 부족')}",
+                        "5.4 통합 리스크",
+                        f"- 조직 문화 차이: {ir.get('organizational_culture_gap', '정보 부족')}",
+                        f"- 시스템 통합 난이도: {ir.get('system_integration_difficulty', '정보 부족')}",
+                    ]
+                )
+            elif template_id == RagPipeline.ENTRY_TEMPLATE_STRATEGIC_DECISION:
+                an = answer.get("acquisition_necessity") if isinstance(answer.get("acquisition_necessity"), dict) else {}
+                ff = answer.get("financial_feasibility") if isinstance(answer.get("financial_feasibility"), dict) else {}
+                kr = answer.get("key_risks_summary") if isinstance(answer.get("key_risks_summary"), dict) else {}
+                fo = answer.get("final_opinion") if isinstance(answer.get("final_opinion"), dict) else {}
+                lines.extend(
+                    [
+                        "6.1 인수 필요성",
+                        f"- 전략적 이유: {an.get('strategic_rationale', '정보 부족')}",
+                        f"- 기대 효과: {an.get('expected_effect', '정보 부족')}",
+                        "6.2 재무적 타당성",
+                        f"- 투자 대비 수익 가능성: {ff.get('return_potential', '정보 부족')}",
+                        f"- 리스크 수준: {ff.get('risk_level', '정보 부족')}",
+                        "6.3 주요 리스크 요약",
+                        "- 핵심 리스크 3가지: " + (", ".join(str(x) for x in (kr.get("top3_key_risks") or [])) if kr.get("top3_key_risks") else "정보 부족"),
+                        "6.4 최종 의견",
+                        f"- Go / Conditional Go / No-Go: {fo.get('decision', '정보 부족')}",
+                        f"- 조건 제시: {fo.get('conditions', '정보 부족')}",
+                    ]
+                )
+            if industry_name != "정보 부족":
+                lines.append(f"산업: {industry_name}")
+            if company_name != "정보 부족":
+                lines.append(f"대상: {company_name}")
+            lines.append(f"분석 요약: {summary}")
+            lines.append("출처: " + (", ".join(str(x) for x in sources) if sources else "정보 부족"))
+            return "\n".join(lines)
         if template_id == RagPipeline.ENTRY_TEMPLATE_PEER_LIST:
             listed = answer.get("listed_companies") if isinstance(answer.get("listed_companies"), list) else []
             unlisted = answer.get("unlisted_companies") if isinstance(answer.get("unlisted_companies"), list) else []

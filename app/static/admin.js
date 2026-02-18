@@ -28,10 +28,23 @@ async function postJson(url, payload) {
   return resp.json();
 }
 
+async function readTxtFile(file) {
+  if (!file) return "";
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("TXT 파일 읽기 실패"));
+    reader.readAsText(file, "utf-8");
+  });
+}
+
 const statusView = document.getElementById("statusView");
 const taskView = document.getElementById("taskView");
 const exportTxtBtn = document.getElementById("exportTxtBtn");
 const exportPdfBtn = document.getElementById("exportPdfBtn");
+let adminLastAiQuery = "";
+let adminLastAiRows = [];
+let adminLastAiProvider = "";
 
 const taskNameMap = {
   normalize_manifest: "매니페스트 정규화",
@@ -325,6 +338,72 @@ async function saveCompanySearchSettings() {
   }
 }
 
+async function runAdminAiSearch() {
+  const promptEl = document.getElementById("adminAiSearchPrompt");
+  const txtFileEl = document.getElementById("adminAiSearchTxtFile");
+  const topKEl = document.getElementById("adminAiSearchTopK");
+  const resultView = document.getElementById("adminAiSearchResultView");
+  const promptView = document.getElementById("adminAiSearchPromptView");
+  const rawView = document.getElementById("adminAiSearchRawView");
+
+  const prompt = String(promptEl?.value || "").trim();
+  const txt = await readTxtFile(txtFileEl?.files && txtFileEl.files[0]);
+  if (!prompt && !txt.trim()) {
+    alert("검색 프롬프트 또는 TXT 파일 중 하나를 입력해 주세요.");
+    return;
+  }
+  const topK = Math.max(1, Math.min(30, Number(topKEl?.value || 10)));
+  resultView.textContent = "AI 업체검색 실행 중...";
+  try {
+    const data = await postJson("/api/company-overview-search", {
+      prompt,
+      top_k: topK,
+      txt_content: txt || null,
+      include_ai: true,
+    });
+    resultView.textContent = String(data.ai_answer_text || "AI 결과 없음");
+    promptView.textContent = String(data.ai_prompt_used || "AI 프롬프트 없음");
+    rawView.textContent =
+      data.ai_raw_response && typeof data.ai_raw_response === "object"
+        ? JSON.stringify(data.ai_raw_response, null, 2)
+        : "AI 원본 응답 없음";
+
+    adminLastAiQuery = prompt || "admin-ai-search";
+    adminLastAiRows = Array.isArray(data.ai_similar_results) ? data.ai_similar_results : [];
+    adminLastAiProvider = String(data.provider || "").trim();
+  } catch (err) {
+    resultView.textContent = `오류: ${err.message}`;
+  }
+}
+
+async function registerAdminAiSearchResult() {
+  if (!adminLastAiRows.length) {
+    alert("등록할 AI 검색 결과가 없습니다.");
+    return;
+  }
+  if (!adminLastAiProvider) {
+    alert("AI provider 정보가 없어 등록할 수 없습니다.");
+    return;
+  }
+  if (!confirm("현재 AI 검색 결과를 벡터 DB에 등록하시겠습니까?")) return;
+  const resultView = document.getElementById("adminAiSearchResultView");
+  try {
+    const data = await postJson("/api/company-search/register-ai-results", {
+      query: adminLastAiQuery,
+      provider: adminLastAiProvider,
+      items: adminLastAiRows,
+    });
+    if (data.ok) {
+      resultView.textContent += `\n\n[등록 완료] 추가 청크 ${data.added_chunks}개`;
+      await refreshStatus();
+    } else {
+      resultView.textContent += `\n\n[등록 실패] ${data.message || "알 수 없는 오류"}`;
+    }
+  } catch (err) {
+    resultView.textContent += `\n\n[등록 오류] ${err.message}`;
+  }
+}
+
 async function runTask(task) {
   taskView.textContent = `실행 중: ${taskNameMap[task] || task}`;
   try {
@@ -446,6 +525,14 @@ if (exportPdfBtn) {
 const saveCompanySearchSettingsBtn = document.getElementById("saveCompanySearchSettingsBtn");
 if (saveCompanySearchSettingsBtn) {
   saveCompanySearchSettingsBtn.addEventListener("click", saveCompanySearchSettings);
+}
+const adminAiSearchRunBtn = document.getElementById("adminAiSearchRunBtn");
+if (adminAiSearchRunBtn) {
+  adminAiSearchRunBtn.addEventListener("click", runAdminAiSearch);
+}
+const adminAiSearchRegisterBtn = document.getElementById("adminAiSearchRegisterBtn");
+if (adminAiSearchRegisterBtn) {
+  adminAiSearchRegisterBtn.addEventListener("click", registerAdminAiSearchResult);
 }
 
 refreshStatus();
