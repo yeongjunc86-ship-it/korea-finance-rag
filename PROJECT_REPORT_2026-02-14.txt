@@ -1,5 +1,5 @@
 [Korea Finance RAG 작업 요약]
-최종 업데이트: 2026-02-16
+최종 업데이트: 2026-02-18
 작성위치: /home/aidome/workspace/korea-finance-rag/PROJECT_REPORT_2026-02-14.txt
 
 0) 현재 확보한 데이터
@@ -127,5 +127,68 @@
   - `run_full_collection.sh`에 전략 케이스 단계 포함 (`STRATEGIC_CASE_ENABLED=1`)
 - 운영 연계:
   - 관리자 콘솔 작업 추가: 전략 케이스 생성 / 전략 10문항 평가
+
+17) 운영 콘솔 고도화 및 업체 검색 분리(최근)
+- 상단 내비게이션 고정: `업체검색 / 전략 수립 / 운영 콘솔` 상시 노출
+- 운영 콘솔 단순화 후 재구성:
+  - 공시 데이터 대량 수집(실행/중지/진행률/로그 tail/완료 후 메모리 반영)
+  - 공시 대량 수집 API:
+    - `POST /api/admin/disclosure/start`
+    - `GET /api/admin/disclosure/status`
+    - `POST /api/admin/disclosure/stop`
+- 업체 입력 기준 확립:
+  - 대량 수집 제외 기능은 `업체명` 기준으로 실행
+
+18) 소스 레이어 분리/등록 확장
+- 분리 기준 정리(운영 정책):
+  - `authoritative`: 공시(DART, Yahoo)
+  - `internet`: 인터넷(뉴스/웹검색)
+  - `ai`: AI 결과(OpenAI/Gemini)
+  - `user_input`: 사용자 입력 텍스트
+- 벡터 등록 확장:
+  - AI 결과 등록: `POST /api/company-search/register-ai-results`
+  - 인터넷 결과 등록: `POST /api/company-search/register-internet-results`
+- 소스 레이어 인식 확장:
+  - `app/services/rag_pipeline.py`의 `_source_layer_of_row`에 `internet`, `user_input` 처리 추가
+
+19) 운영 콘솔 업체 검색 기능 확장
+- AI 업체검색(운영 콘솔):
+  - provider 선택(openai/gemini), 템플릿 선택, TXT 업로드 지원
+  - AI 결과 DB 등록 버튼/로그 개선(시도/중단/취소/성공/실패/오류 표시)
+- 인터넷 업체검색(운영 콘솔):
+  - 뉴스 검색 + 일반 웹검색(옵션) 병합
+  - 템플릿 선택, TXT 업로드 지원
+  - 검색 결과 DB 등록 버튼 지원
+  - API: `POST /api/admin/internet-company-search`
+
+20) 템플릿 강제 프롬프트 전면 강화
+- 강제 템플릿 질의 생성기 추가/강화: `app/routers/api.py::_build_template_forced_query`
+- 아래 템플릿 모두 JSON 스키마/작성 규칙을 프롬프트에 명시:
+  - `target_company_overview`
+  - `industry_market_analysis`
+  - `valuation_analysis`
+  - `synergy_pair_analysis`
+  - `due_diligence_risk_analysis`
+  - `strategic_decision_analysis`
+
+21) 업체명 명시 시 동작 규칙 강화
+- 업체명 명시 시:
+  - 후보군 유추 생략
+  - 명시 업체 단일 기준으로 검색/생성
+  - `selected_company`/`inferred_candidates`를 명시 업체 1개로 고정
+- 업체명 미명시 시:
+  - 기존 후보군 유추 로직 사용
+- 업체명 고정 출력:
+  - 모든 템플릿 결과에서 `업체명:`을 최상단에 출력
+  - 공통 기본 응답에서 회사명/마켓 자동 보정 추가
+
+22) 템플릿 품질 보강(정보 부족 축소)
+- `valuation_analysis`:
+  - 내부 재무 스냅샷 백필(`_backfill_answer_from_evidence`) 연계
+  - 재무요약/멀티플/가치범위 fallback 보강
+- `due_diligence_risk_analysis`:
+  - 재무/법무·규제/운영/통합 4영역 컨텍스트 기반 fallback 보강
+- `strategic_decision_analysis`:
+  - 인수 필요성/재무 타당성/리스크 TOP3/최종의견 fallback 보강
 
 끝.

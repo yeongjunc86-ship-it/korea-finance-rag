@@ -1,4 +1,4 @@
 {
   "enable_openai": true,
-  "enable_gemini": false
+  "enable_gemini": true
 }

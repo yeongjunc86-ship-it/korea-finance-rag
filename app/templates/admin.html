@@ -42,17 +42,6 @@
     </section>
 
     <section class="card">
-      <h2>대상 회사</h2>
-      <div class="row wrap">
-        <label>
-          대상 회사(쉼표 구분)
-          <input id="commonCompanies" type="text" value="" placeholder="예: BYC, 삼성전자, 001460.KS" />
-        </label>
-      </div>
-      <p class="muted">대량 수집을 제외한 작업은 대상 회사 기준으로 수행합니다.</p>
-    </section>
-
-    <section class="card">
       <h2>공시 데이터 대량 수집</h2>
       <div class="row wrap">
         <button id="disclosureStartBtn" type="button">실행</button>
@@ -64,11 +53,115 @@
     </section>
 
     <section class="card">
+      <h2>업체</h2>
+      <div class="row wrap">
+        <label>
+          업체명
+          <input id="commonCompanies" type="text" value="" placeholder="예: BYC, 삼성전자, 001460.KS" />
+        </label>
+      </div>
+      <p class="muted">대량 수집을 제외한 작업은 업체 기준으로 수행합니다.</p>
+    </section>
+
+    <section class="card">
+      <h2>AI 업체검색</h2>
+      <div class="row wrap">
+        <label>
+          검색 프롬프트(선택)
+          <textarea id="adminAiSearchPrompt" rows="4" placeholder="비워두면 업체명 기준으로 검색"></textarea>
+        </label>
+      </div>
+      <div class="row wrap">
+        <label>
+          TXT 파일 첨부(선택)
+          <input id="adminAiSearchTxtFile" type="file" accept=".txt" />
+        </label>
+        <label>
+          템플릿
+          <select id="adminAiSearchTemplate">
+            <option value="company_overview" selected>기업 개요 분석</option>
+            <option value="industry_market_analysis">산업 및 시장 분석</option>
+            <option value="valuation_analysis">밸류에이션 관련</option>
+            <option value="due_diligence_risk_analysis">리스크 및 실사</option>
+            <option value="strategic_decision_analysis">전략적 의사결정</option>
+            <option value="synergy_pair_analysis">두 회사간 시너지 분석</option>
+          </select>
+        </label>
+        <label>
+          AI Provider
+          <select id="adminAiSearchProvider">
+            <option value="gemini" selected>gemini</option>
+            <option value="openai">openai</option>
+          </select>
+        </label>
+        <label>
+          결과 개수
+          <input id="adminAiSearchTopK" type="number" min="1" max="30" value="10" />
+        </label>
+      </div>
+      <div class="row wrap">
+        <button id="adminAiSearchRunBtn" type="button">AI 업체 검색 실행</button>
+        <button id="adminAiSearchRegisterBtn" type="button">AI 결과 DB 등록</button>
+      </div>
+      <p>검색 결과</p>
+      <pre id="adminAiSearchResultView">아직 요청 없음</pre>
+      <p>프롬프트</p>
+      <pre id="adminAiSearchPromptView">아직 요청 없음</pre>
+      <p>AI 결과</p>
+      <pre id="adminAiSearchRawView">아직 요청 없음</pre>
+    </section>
+
+    <section class="card">
+      <h2>인터넷 업체검색</h2>
+      <div class="row wrap">
+        <label>
+          인터넷 검색 프롬프트(선택)
+          <textarea id="adminInternetSearchPrompt" rows="4" placeholder="비워두면 업체명/TXT 기반 검색"></textarea>
+        </label>
+      </div>
+      <div class="row wrap">
+        <label>
+          TXT 파일 첨부(선택)
+          <input id="adminInternetSearchTxtFile" type="file" accept=".txt" />
+        </label>
+        <label>
+          템플릿
+          <select id="adminInternetSearchTemplate">
+            <option value="company_overview" selected>기업 개요 분석</option>
+            <option value="industry_market_analysis">산업 및 시장 분석</option>
+            <option value="valuation_analysis">밸류에이션 관련</option>
+            <option value="due_diligence_risk_analysis">리스크 및 실사</option>
+            <option value="strategic_decision_analysis">전략적 의사결정</option>
+            <option value="synergy_pair_analysis">두 회사간 시너지 분석</option>
+          </select>
+        </label>
+        <label>
+          <input id="adminInternetIncludeWeb" type="checkbox" checked />
+          일반 웹검색 포함
+        </label>
+        <label>
+          결과 개수
+          <input id="adminInternetSearchTopK" type="number" min="1" max="30" value="10" />
+        </label>
+      </div>
+      <div class="row wrap">
+        <button id="adminInternetSearchRunBtn" type="button">인터넷 검색</button>
+        <button id="adminInternetSearchRegisterBtn" type="button">검색 결과 DB 등록</button>
+      </div>
+      <p>검색 결과</p>
+      <pre id="adminInternetSearchResultView">아직 요청 없음</pre>
+      <p>프롬프트</p>
+      <pre id="adminInternetSearchPromptView">아직 요청 없음</pre>
+      <p>원본 결과</p>
+      <pre id="adminInternetSearchRawView">아직 요청 없음</pre>
+    </section>
+
+    <section class="card">
       <h2>데이터 상태</h2>
       <button id="refreshBtn">새로고침</button>
       <pre id="statusView">로딩 중...</pre>
     </section>
   </main>
-  <script src="/static/admin.js?v=20260218c"></script>
+  <script src="/static/admin.js?v=20260218j"></script>
 </body>
 </html>

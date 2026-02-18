@@ -193,15 +193,22 @@ class RegisterAiResultsRequest(BaseModel):
     items: list[CompanySearchItem] = Field(default_factory=list)
 
 
+class RegisterInternetResultsRequest(BaseModel):
+    query: str = Field(..., min_length=2)
+    items: list[CompanySearchItem] = Field(default_factory=list)
+
+
 class DeleteAiSourceRequest(BaseModel):
     source: str = Field(..., min_length=5)
 
 
 class CompanyOverviewSearchRequest(BaseModel):
     prompt: str = Field(default="")
+    template_id: str = Field(default="company_overview")
     top_k: int = Field(default=10, ge=1, le=30)
     txt_content: str | None = None
     include_ai: bool = True
+    ai_provider: str | None = None
 
 
 class CompanyOverviewSearchResponse(BaseModel):
@@ -214,3 +221,12 @@ class CompanyOverviewSearchResponse(BaseModel):
     ai_similar_results: list[SimilarCompanyItem]
     ai_prompt_used: str | None = None
     ai_raw_response: dict[str, Any] | None = None
+
+
+class InternetCompanySearchRequest(BaseModel):
+    prompt: str = Field(default="")
+    company_name: str = Field(default="")
+    template_id: str = Field(default="company_overview")
+    top_k: int = Field(default=10, ge=1, le=30)
+    include_web: bool = True
+    txt_content: str | None = None
